@@ -50,7 +50,7 @@ def get_session_path(label: str) -> Path:
     return PROJECT_ROOT / 'sessions' / f"{label}.json"
 
 
-def get_download_path(platform: str, label: str, date_str: str) -> Path:
+def get_download_path(label: str) -> Path:
     settings = load_settings()
     base_path = PROJECT_ROOT / settings['download']['base_path']
-    return base_path / platform / label / date_str
+    return base_path / label

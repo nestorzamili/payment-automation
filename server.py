@@ -120,5 +120,5 @@ if __name__ == '__main__':
     app.run(
         host=flask_config['host'],
         port=flask_config['port'],
-        # debug=flask_config['debug']
+        debug=flask_config['debug']
     )

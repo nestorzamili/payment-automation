@@ -70,7 +70,7 @@ class BaseScraper(ABC):
                 logger.info(f"Session valid: {self.label}")
             
             today = datetime.now(KL_TZ).strftime("%Y-%m-%d")
-            download_dir = get_download_path(self.platform, self.label, today)
+            download_dir = get_download_path(self.label)
             
             downloaded_files = await self.download_files(page, download_dir, today)
             
@@ -110,7 +110,7 @@ class BaseScraper(ABC):
             await page.goto(self.target_url, wait_until='networkidle')
             
             today = datetime.now(KL_TZ).strftime("%Y-%m-%d")
-            download_dir = get_download_path(self.platform, self.label, today)
+            download_dir = get_download_path(self.label)
             
             downloaded_files = await self.download_files(page, download_dir, today)
             
