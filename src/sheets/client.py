@@ -1,0 +1,88 @@
+import gspread
+from google.oauth2.service_account import Credentials
+import pandas as pd
+from typing import List, Any
+from pathlib import Path
+
+from src.core.logger import get_logger
+from src.core.loader import get_service_account_path, get_spreadsheet_id, load_settings
+
+logger = get_logger(__name__)
+
+SCOPES = [
+    'https://www.googleapis.com/auth/spreadsheets',
+    'https://www.googleapis.com/auth/drive'
+]
+
+
+class SheetsClient:
+    
+    def __init__(self):
+        self.settings = load_settings()
+        self.spreadsheet_id = get_spreadsheet_id()
+        self.service_account_path = get_service_account_path()
+        
+        credentials = Credentials.from_service_account_file(
+            str(self.service_account_path),
+            scopes=SCOPES
+        )
+        
+        self.client = gspread.authorize(credentials)
+        self.spreadsheet = self.client.open_by_key(self.spreadsheet_id)
+        logger.info(f"Sheets client initialized for spreadsheet: {self.spreadsheet_id}")
+    
+    def clear_sheet(self, sheet_name: str):
+        try:
+            worksheet = self.spreadsheet.worksheet(sheet_name)
+            worksheet.clear()
+            logger.info(f"Cleared sheet: {sheet_name}")
+        except Exception as e:
+            logger.error(f"Failed to clear sheet {sheet_name}: {e}")
+            raise
+    
+    def write_data(self, sheet_name: str, data: List[List[Any]], start_cell: str = 'A1'):
+        try:
+            worksheet = self.spreadsheet.worksheet(sheet_name)
+            worksheet.update(start_cell, data)
+            logger.info(f"Wrote {len(data)} rows to {sheet_name}")
+        except Exception as e:
+            logger.error(f"Failed to write to {sheet_name}: {e}")
+            raise
+    
+    def append_data(self, sheet_name: str, data: List[List[Any]]):
+        try:
+            worksheet = self.spreadsheet.worksheet(sheet_name)
+            worksheet.append_rows(data)
+            logger.info(f"Appended {len(data)} rows to {sheet_name}")
+        except Exception as e:
+            logger.error(f"Failed to append to {sheet_name}: {e}")
+            raise
+    
+    def read_data(self, sheet_name: str, range_spec: str = '') -> List[List[Any]]:
+        try:
+            worksheet = self.spreadsheet.worksheet(sheet_name)
+            if range_spec:
+                values = worksheet.get(range_spec)
+            else:
+                values = worksheet.get_all_values()
+            logger.info(f"Read {len(values)} rows from {sheet_name}")
+            return values
+        except Exception as e:
+            logger.error(f"Failed to read from {sheet_name}: {e}")
+            raise
+    
+    def upload_dataframe(self, sheet_name: str, df: pd.DataFrame, include_header: bool = True, clear_first: bool = False):
+        logger.info(f"Uploading DataFrame to {sheet_name}: {len(df)} rows, {len(df.columns)} columns")
+        
+        data = []
+        if include_header:
+            data.append(df.columns.tolist())
+        
+        for _, row in df.iterrows():
+            data.append(['' if pd.isna(val) else val for val in row.values])
+        
+        if clear_first:
+            self.clear_sheet(sheet_name)
+        
+        self.write_data(sheet_name, data)
+        logger.info(f"Successfully uploaded {len(df)} rows to {sheet_name}")
