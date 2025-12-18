@@ -30,8 +30,16 @@ class BrowserManager:
         
         logger.info(f"Browser initialized (headless={headless})")
         
+        launch_args = []
+        if not headless:
+            launch_args.append('--start-maximized')
+        
         self.playwright = await async_playwright().start()
-        self.browser = await self.playwright.chromium.launch(headless=headless)
+        self.browser = await self.playwright.chromium.launch(
+            headless=headless,
+            args=launch_args
+        )
+        self.headless = headless
         
     async def create_context(self, session_path: Optional[Path] = None) -> BrowserContext:
         if not self.browser:
@@ -46,8 +54,12 @@ class BrowserManager:
             },
             'permissions': ['geolocation'],
             'user_agent': self.settings['browser']['user_agent'],
-            'viewport': {'width': 1920, 'height': 1080}
         }
+        
+        if self.headless:
+            context_options['viewport'] = {'width': 1920, 'height': 1080}
+        else:
+            context_options['no_viewport'] = True
         
         if session_path and session_path.exists():
             context_options['storage_state'] = str(session_path)

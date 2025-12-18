@@ -32,6 +32,6 @@ class FiuuScraper(BaseScraper):
     async def wait_for_login_success(self, page: Page):
         await page.wait_for_url('**/home**', timeout=30000)
     
-    async def download_files(self, page: Page, download_dir: Path, date_str: str) -> List[Path]:
+    async def download_files(self, page: Page, download_dir: Path, from_date: str, to_date: str) -> List[Path]:
         logger.warning("FIUU scraper download_files() not implemented")
         return []

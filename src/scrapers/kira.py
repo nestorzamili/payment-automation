@@ -44,31 +44,31 @@ class KiraScraper(BaseScraper):
     async def wait_for_login_success(self, page: Page):
         await page.wait_for_url('**/home**', timeout=30000)
     
-    async def download_files(self, page: Page, download_dir: Path, date_str: str) -> List[Path]:
-        logger.info(f"Downloading KIRA: {date_str}")
+    async def download_files(self, page: Page, download_dir: Path, from_date: str, to_date: str) -> List[Path]:
+        logger.info(f"Downloading KIRA: {from_date} to {to_date}")
         download_dir.mkdir(parents=True, exist_ok=True)
         
-        success = await self._create_export(page, date_str)
+        success = await self._create_export(page, from_date, to_date)
         if not success:
             logger.error("Failed to create export")
             return []
         
         await asyncio.sleep(2)
         
-        report_id = await self._get_latest_report_id(page, date_str)
+        report_id = await self._get_latest_report_id(page, from_date, to_date)
         if not report_id:
             logger.error("Failed to get report ID")
             return []
         
-        file_path = await self._download_report(page, download_dir, report_id, date_str)
+        file_path = await self._download_report(page, download_dir, report_id, from_date)
         if not file_path:
             return []
         
         return [file_path]
     
-    async def _create_export(self, page: Page, date_str: str) -> bool:
+    async def _create_export(self, page: Page, from_date: str, to_date: str) -> bool:
         url = self.base_url + self.EXPORT_PATH
-        start_date, end_date = self._get_date_range(date_str)
+        start_date, end_date = self._get_date_range(from_date, to_date)
         form_data = self._build_export_form_data(start_date, end_date)
         
         response = await page.request.post(
@@ -93,9 +93,9 @@ class KiraScraper(BaseScraper):
             logger.error(f"Failed to parse export response: {e}")
             return False
     
-    async def _get_latest_report_id(self, page: Page, date_str: str) -> Optional[int]:
+    async def _get_latest_report_id(self, page: Page, from_date: str, to_date: str) -> Optional[int]:
         url = self.base_url + self.REPORT_LIST_PATH
-        start_date, end_date = self._get_date_range(date_str)
+        start_date, end_date = self._get_date_range(from_date, to_date)
         form_data = self._build_report_list_form_data(start_date, end_date)
         
         response = await page.request.post(
@@ -162,10 +162,11 @@ class KiraScraper(BaseScraper):
         logger.info(f"Downloaded: {filename}")
         return file_path
     
-    def _get_date_range(self, date_str: str) -> tuple:
-        dt = datetime.strptime(date_str, '%Y-%m-%d')
-        start = dt.replace(hour=0, minute=0, second=0)
-        end = dt.replace(hour=23, minute=59, second=59)
+    def _get_date_range(self, from_date: str, to_date: str) -> tuple:
+        start_dt = datetime.strptime(from_date, '%Y-%m-%d')
+        end_dt = datetime.strptime(to_date, '%Y-%m-%d')
+        start = start_dt.replace(hour=0, minute=0, second=0)
+        end = end_dt.replace(hour=23, minute=59, second=59)
         
         start_str = start.strftime(f'%Y-%m-%dT%H:%M:%S{self.tz_offset}')
         end_str = end.strftime(f'%Y-%m-%dT%H:%M:%S{self.tz_offset}')
