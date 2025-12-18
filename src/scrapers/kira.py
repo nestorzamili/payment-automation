@@ -1,12 +1,10 @@
 import asyncio
 from datetime import datetime
 from pathlib import Path
-from typing import List, Optional
-from zoneinfo import ZoneInfo
+from typing import List
 
 from playwright.async_api import Page
 
-from src.core.loader import load_settings
 from src.core.logger import get_logger
 from src.scrapers.base import BaseScraper
 
@@ -16,16 +14,7 @@ logger = get_logger(__name__)
 class KiraScraper(BaseScraper):
     
     LOGIN_PATH = "/mms/login"
-    TARGET_PATH = "/mms/home#!/transactions"
-    EXPORT_PATH = "/mms_api/report_transactions/get_report_list"
-    REPORT_LIST_PATH = "/mms_api/report_export_history/get_report_list"
-    DOWNLOAD_PATH = "/mms_api/report_export_history/download_report"
-    
-    def __init__(self, account: dict):
-        super().__init__(account)
-        self.settings = load_settings()
-        self.tz = ZoneInfo(self.settings['timezone'])
-        self.tz_offset = self.settings['timezone_offset']
+    TARGET_PATH = "/mms/home#!/dashboard"
     
     async def check_if_logged_in(self, page: Page) -> bool:
         try:
@@ -48,213 +37,109 @@ class KiraScraper(BaseScraper):
         logger.info(f"Downloading KIRA: {from_date} to {to_date}")
         download_dir.mkdir(parents=True, exist_ok=True)
         
-        success = await self._create_export(page, from_date, to_date)
-        if not success:
-            logger.error("Failed to create export")
-            return []
+        logger.info("Clicking Transactions on sidebar")
+        await page.get_by_role("link", name="Transactions").click()
+        await page.wait_for_load_state('networkidle')
+        await asyncio.sleep(1)
         
+        logger.info(f"Selecting From Date: {from_date}")
+        await self._select_date(page, 'input[ng-model="selectedStartDate"]', from_date)
+        
+        logger.info(f"Selecting To Date: {to_date}")
+        await self._select_date(page, 'input[ng-model="selectedEndDate"]', to_date)
+        
+        logger.info("Selecting Transaction Status: SUCCESS")
+        await page.locator('button[data-id="selectedTransactionStatus"]').click()
+        await asyncio.sleep(0.5)
+        
+        await page.locator('.bs-deselect-all').click()
+        await asyncio.sleep(0.3)
+        
+        await page.locator('.dropdown-item').filter(has_text="SUCCESS").click()
+        await asyncio.sleep(0.3)
+        
+        await page.keyboard.press('Escape')
+        await asyncio.sleep(0.3)
+        
+        logger.info("Clicking Search button")
+        await page.get_by_role("button", name="Search").click()
+        await page.wait_for_load_state('networkidle')
+        await asyncio.sleep(1)
+        
+        logger.info("Clicking Export button")
+        await page.get_by_role("button", name="Export").click()
+        await asyncio.sleep(1)
+        
+        logger.info("Clicking Yes on modal to go to Export History")
+        await page.locator('#dialogModalButton2').click()
+        await page.wait_for_load_state('networkidle')
         await asyncio.sleep(2)
         
-        report_id = await self._get_latest_report_id(page, from_date, to_date)
-        if not report_id:
-            logger.error("Failed to get report ID")
+        first_row = page.locator('#reportListTable tbody tr').first
+        status = await first_row.locator('td:nth-child(10)').text_content()
+        status = status.strip() if status else ""
+        
+        if status != "Completed":
+            logger.info(f"Export status: {status} - file not ready yet")
             return []
         
-        file_path = await self._download_report(page, download_dir, report_id, from_date)
-        if not file_path:
-            return []
+        logger.info("Export completed, clicking Download button")
+        download_btn = first_row.locator('button[ng-click^="downloadReport"]')
         
-        return [file_path]
-    
-    async def _create_export(self, page: Page, from_date: str, to_date: str) -> bool:
-        url = self.base_url + self.EXPORT_PATH
-        start_date, end_date = self._get_date_range(from_date, to_date)
-        form_data = self._build_export_form_data(start_date, end_date)
+        async with page.expect_download() as download_info:
+            await download_btn.click()
         
-        response = await page.request.post(
-            url,
-            form=form_data,
-            headers={'Content-Type': 'application/x-www-form-urlencoded'}
-        )
+        download = await download_info.value
         
-        if response.status != 200:
-            logger.error(f"Export API failed: {response.status}")
-            return False
-        
-        try:
-            data = await response.json()
-            if data.get('response_code') == '00':
-                logger.info("Export created")
-                return True
-            else:
-                logger.error(f"Export failed: {data.get('response_message')}")
-                return False
-        except Exception as e:
-            logger.error(f"Failed to parse export response: {e}")
-            return False
-    
-    async def _get_latest_report_id(self, page: Page, from_date: str, to_date: str) -> Optional[int]:
-        url = self.base_url + self.REPORT_LIST_PATH
-        start_date, end_date = self._get_date_range(from_date, to_date)
-        form_data = self._build_report_list_form_data(start_date, end_date)
-        
-        response = await page.request.post(
-            url,
-            form=form_data,
-            headers={'Content-Type': 'application/x-www-form-urlencoded'}
-        )
-        
-        if response.status != 200:
-            logger.error(f"Report list API failed: {response.status}")
-            return None
-        
-        try:
-            data = await response.json()
-            reports = data.get('data', [])
-            
-            if not reports:
-                logger.error("No reports found")
-                return None
-            
-            completed_reports = [r for r in reports if r.get('status_id') == 3]
-            if not completed_reports:
-                logger.error("No completed reports found")
-                return None
-            
-            latest_report = max(completed_reports, key=lambda r: r.get('id', 0))
-            report_id = latest_report.get('id')
-            
-            logger.info(f"Found report: id={report_id}")
-            return report_id
-            
-        except Exception as e:
-            logger.error(f"Failed to parse report list: {e}")
-            return None
-    
-    async def _download_report(self, page: Page, download_dir: Path, report_id: int, date_str: str) -> Optional[Path]:
-        url = self.base_url + self.DOWNLOAD_PATH
-        
-        response = await page.request.post(
-            url,
-            data={'reportID': report_id},
-            headers={'Content-Type': 'application/json'}
-        )
-        
-        if response.status != 200:
-            logger.error(f"Download API failed: {response.status}")
-            return None
-        
-        content_disposition = response.headers.get('content-disposition', '')
-        
-        filename = None
-        if 'filename=' in content_disposition:
-            filename = content_disposition.split('filename=')[1].strip('"\'')
-        
-        if not filename:
-            filename = f"kira_transactions_{date_str}.xlsx"
-        
+        filename = f"{self.label}_{from_date}_{to_date}.xlsx"
         file_path = download_dir / filename
-        
-        content = await response.body()
-        with open(file_path, 'wb') as f:
-            f.write(content)
+        await download.save_as(file_path)
         
         logger.info(f"Downloaded: {filename}")
-        return file_path
+        return [file_path]
     
-    def _get_date_range(self, from_date: str, to_date: str) -> tuple:
-        start_dt = datetime.strptime(from_date, '%Y-%m-%d')
-        end_dt = datetime.strptime(to_date, '%Y-%m-%d')
-        start = start_dt.replace(hour=0, minute=0, second=0)
-        end = end_dt.replace(hour=23, minute=59, second=59)
+    async def _select_date(self, page: Page, input_selector: str, date_str: str):
+        target_date = datetime.strptime(date_str, '%Y-%m-%d')
+        target_year = target_date.year
+        target_month = target_date.month
+        target_day = target_date.day
         
-        start_str = start.strftime(f'%Y-%m-%dT%H:%M:%S{self.tz_offset}')
-        end_str = end.strftime(f'%Y-%m-%dT%H:%M:%S{self.tz_offset}')
+        date_input = page.locator(input_selector)
+        await date_input.click()
+        await asyncio.sleep(0.5)
         
-        return start_str, end_str
+        datepicker = page.locator('.uib-datepicker-popup')
+        await datepicker.wait_for(state='visible')
+        
+        while True:
+            title_btn = datepicker.locator('.uib-title strong')
+            title_text = await title_btn.text_content()
+            
+            parts = title_text.strip().split()
+            current_month_name = parts[0].upper()
+            current_year = int(parts[1])
+            
+            month_names = ['JANUARY', 'FEBRUARY', 'MARCH', 'APRIL', 'MAY', 'JUNE',
+                          'JULY', 'AUGUST', 'SEPTEMBER', 'OCTOBER', 'NOVEMBER', 'DECEMBER']
+            current_month = month_names.index(current_month_name) + 1
+            
+            if current_year == target_year and current_month == target_month:
+                break
+            
+            if (current_year > target_year) or (current_year == target_year and current_month > target_month):
+                await datepicker.locator('.uib-left').click()
+            else:
+                await datepicker.locator('.uib-right').click()
+            
+            await asyncio.sleep(0.3)
+        
+        day_str = str(target_day).zfill(2)
+        day_btn = datepicker.locator(f'.uib-day button:not([disabled]) span:not(.text-muted):text-is("{day_str}")')
+        
+        if await day_btn.count() == 0:
+            day_btn = datepicker.locator(f'.uib-day button:not([disabled]) span:not(.text-muted):text-is("{target_day}")')
+        
+        await day_btn.click()
+        await asyncio.sleep(0.3)
     
-    def _build_export_form_data(self, start_date: str, end_date: str) -> dict:
-        columns = [
-            {'data': '', 'name': 'No.', 'searchable': 'false', 'orderable': 'false'},
-            {'data': 'created_time', 'name': 'Created On', 'searchable': 'true', 'orderable': 'true'},
-            {'data': 'payment_gateway_transaction_time', 'name': 'Paid On', 'searchable': 'true', 'orderable': 'true'},
-            {'data': 'merchant_name', 'name': 'Merchant', 'searchable': 'true', 'orderable': 'true'},
-            {'data': 'transaction_id', 'name': 'Transaction ID', 'searchable': 'true', 'orderable': 'true'},
-            {'data': 'merchant_transaction_id', 'name': 'Merchant Order ID', 'searchable': 'true', 'orderable': 'true'},
-            {'data': 'payment_gateway_transaction_id', 'name': 'Ext Transaction ID', 'searchable': 'true', 'orderable': 'false'},
-            {'data': 'method_name', 'name': 'Payment Method', 'searchable': 'true', 'orderable': 'true'},
-            {'data': 'currency_code', 'name': 'Currency', 'searchable': 'true', 'orderable': 'true'},
-            {'data': 'transaction_amount', 'name': 'Transaction Amount', 'searchable': 'true', 'orderable': 'true'},
-            {'data': 'mdr_percentage', 'name': 'MDR(%)', 'searchable': 'true', 'orderable': 'false'},
-            {'data': 'mdr_percentage_amount', 'name': 'MDR', 'searchable': 'true', 'orderable': 'false'},
-            {'data': 'mdr_amount', 'name': 'Fee', 'searchable': 'true', 'orderable': 'false'},
-            {'data': 'actual_amount', 'name': 'Actual Amount', 'searchable': 'true', 'orderable': 'false'},
-            {'data': 'status_name', 'name': 'Transaction Status', 'searchable': 'true', 'orderable': 'true'},
-            {'data': 'customer_name', 'name': 'Customer Name', 'searchable': 'true', 'orderable': 'true'},
-            {'data': 'customer_email', 'name': 'Customer Email', 'searchable': 'true', 'orderable': 'true'},
-            {'data': 'customer_phone', 'name': 'Customer Phone', 'searchable': 'true', 'orderable': 'true'},
-        ]
-        
-        form_data = {
-            'merchantIDs[]': '',
-            'currencyIDs[]': '',
-            'paymentMethodIDs[]': '',
-            'transactionStatusIDs[]': '3',
-            'startDate': start_date,
-            'endDate': end_date,
-            'isExport': 'true',
-            'exportType': 'excel',
-            'exportGlobalSearch': '',
-            'order[0][column]': '1',
-            'order[0][dir]': 'desc',
-        }
-        
-        for i, col in enumerate(columns):
-            form_data[f'columns[{i}][isExportVisible]'] = 'true'
-            form_data[f'columns[{i}][data]'] = col['data']
-            form_data[f'columns[{i}][name]'] = col['name']
-            form_data[f'columns[{i}][searchable]'] = col['searchable']
-            form_data[f'columns[{i}][orderable]'] = col['orderable']
-        
-        return form_data
-    
-    def _build_report_list_form_data(self, start_date: str, end_date: str) -> dict:
-        columns = [
-            {'data': '', 'searchable': 'false', 'orderable': 'false'},
-            {'data': 'id', 'searchable': 'true', 'orderable': 'true'},
-            {'data': 'username', 'searchable': 'true', 'orderable': 'true'},
-            {'data': 'merchant_name', 'searchable': 'true', 'orderable': 'false'},
-            {'data': 'module_name', 'searchable': 'true', 'orderable': 'false'},
-            {'data': 'report_name', 'searchable': 'true', 'orderable': 'true'},
-            {'data': 'start_date', 'searchable': 'true', 'orderable': 'true'},
-            {'data': 'end_date', 'searchable': 'true', 'orderable': 'true'},
-            {'data': 'version', 'searchable': 'true', 'orderable': 'false'},
-            {'data': 'status_name', 'searchable': 'true', 'orderable': 'false'},
-            {'data': 'created_time', 'searchable': 'true', 'orderable': 'true'},
-            {'data': '', 'searchable': 'false', 'orderable': 'false'},
-        ]
-        
-        form_data = {
-            'draw': '1',
-            'start': '0',
-            'length': '10',
-            'search[value]': '',
-            'search[regex]': 'false',
-            'merchantIDs': '0',
-            'gameTypeID': '0',
-            'gameIDs': '0',
-            'startDate': start_date,
-            'endDate': end_date,
-            'order[0][column]': '1',
-            'order[0][dir]': 'desc',
-        }
-        
-        for i, col in enumerate(columns):
-            form_data[f'columns[{i}][data]'] = col['data']
-            form_data[f'columns[{i}][name]'] = ''
-            form_data[f'columns[{i}][searchable]'] = col['searchable']
-            form_data[f'columns[{i}][orderable]'] = col['orderable']
-            form_data[f'columns[{i}][search][value]'] = ''
-            form_data[f'columns[{i}][search][regex]'] = 'false'
-        
-        return form_data
+
