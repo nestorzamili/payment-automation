@@ -1,4 +1,3 @@
-import json
 from pathlib import Path
 from typing import Optional
 
@@ -38,40 +37,32 @@ class BrowserManager:
         if not self.browser:
             raise RuntimeError("Browser not initialized")
         
-        context = await self.browser.new_context(
-            locale=self.settings['locale'],
-            timezone_id=self.settings['timezone'],
-            geolocation={
+        context_options = {
+            'locale': self.settings['locale'],
+            'timezone_id': self.settings['timezone'],
+            'geolocation': {
                 'latitude': self.settings['geolocation']['latitude'],
                 'longitude': self.settings['geolocation']['longitude']
             },
-            permissions=['geolocation'],
-            user_agent=self.settings['browser']['user_agent'],
-            viewport={'width': 1920, 'height': 1080}
-        )
-        
-        context.set_default_timeout(self.settings['browser']['timeout'])
+            'permissions': ['geolocation'],
+            'user_agent': self.settings['browser']['user_agent'],
+            'viewport': {'width': 1920, 'height': 1080}
+        }
         
         if session_path and session_path.exists():
-            try:
-                with open(session_path, 'r', encoding='utf-8') as f:
-                    cookies = json.load(f)
-                await context.add_cookies(cookies)
-                logger.info(f"Session loaded: {len(cookies)} cookies")
-            except Exception as e:
-                logger.warning(f"Failed to load session: {e}")
+            context_options['storage_state'] = str(session_path)
+            logger.info(f"Session loaded: {session_path}")
+        
+        context = await self.browser.new_context(**context_options)
+        context.set_default_timeout(self.settings['browser']['timeout'])
         
         return context
         
     async def save_session(self, context: BrowserContext, session_path: Path):
         try:
             session_path.parent.mkdir(parents=True, exist_ok=True)
-            cookies = await context.cookies()
-            
-            with open(session_path, 'w', encoding='utf-8') as f:
-                json.dump(cookies, f, indent=2)
-            
-            logger.info(f"Session saved: {len(cookies)} cookies")
+            await context.storage_state(path=str(session_path))
+            logger.info(f"Session saved: {session_path}")
         except Exception as e:
             logger.error(f"Failed to save session: {e}")
             raise

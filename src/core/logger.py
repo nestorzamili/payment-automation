@@ -1,8 +1,10 @@
+import logging
 import sys
-from pathlib import Path
-from loguru import logger
 from datetime import datetime
+from pathlib import Path
 from zoneinfo import ZoneInfo
+
+from loguru import logger
 
 PROJECT_ROOT = Path(__file__).parent.parent.parent
 KL_TZ = ZoneInfo('Asia/Kuala_Lumpur')
@@ -10,6 +12,21 @@ KL_TZ = ZoneInfo('Asia/Kuala_Lumpur')
 
 def get_kl_timestamp():
     return datetime.now(KL_TZ).strftime("%Y-%m-%d %H:%M:%S")
+
+
+class InterceptHandler(logging.Handler):
+    def emit(self, record):
+        try:
+            level = logger.level(record.levelname).name
+        except ValueError:
+            level = record.levelno
+
+        frame, depth = sys._getframe(6), 6
+        while frame and frame.f_code.co_filename == logging.__file__:
+            frame = frame.f_back
+            depth += 1
+
+        logger.opt(depth=depth, exception=record.exc_info).log(level, record.getMessage())
 
 
 def setup_logger():
@@ -34,6 +51,12 @@ def setup_logger():
         level="DEBUG",
         encoding="utf-8"
     )
+    
+    logging.basicConfig(handlers=[InterceptHandler()], level=0, force=True)
+    
+    for name in ["werkzeug", "flask", "urllib3", "asyncio"]:
+        logging.getLogger(name).handlers = [InterceptHandler()]
+        logging.getLogger(name).propagate = False
     
     return logger
 
