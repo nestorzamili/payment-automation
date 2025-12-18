@@ -11,6 +11,9 @@ logger = get_logger(__name__)
 
 class M1Scraper(BaseScraper):
     
+    LOGIN_PATH = "/user/login"
+    TARGET_PATH = "/transaction/fpx-list"
+    
     async def check_if_logged_in(self, page: Page) -> bool:
         try:
             dashboard = page.locator('div.dashboard, #main-content')
@@ -26,9 +29,8 @@ class M1Scraper(BaseScraper):
         await page.click('button[type="submit"]')
     
     async def wait_for_login_success(self, page: Page):
-        await page.wait_for_url('**/dashboard', timeout=30000)
+        await page.wait_for_url('**/dashboard**', timeout=30000)
     
     async def download_files(self, page: Page, download_dir: Path, date_str: str) -> List[Path]:
-        downloaded_files = []
         logger.warning("M1 scraper download_files() not implemented")
-        return downloaded_files
+        return []

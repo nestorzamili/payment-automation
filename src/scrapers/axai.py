@@ -11,10 +11,13 @@ logger = get_logger(__name__)
 
 class AxaiScraper(BaseScraper):
     
+    LOGIN_PATH = "/login.html"
+    TARGET_PATH = "/pay/bill/find"
+    
     async def check_if_logged_in(self, page: Page) -> bool:
         try:
-            dashboard = page.locator('div.dashboard, #main-menu, .user-info')
-            return await dashboard.is_visible(timeout=3000)
+            user_info = page.locator('.user-info, #main-menu, .logout')
+            return await user_info.is_visible(timeout=3000)
         except Exception:
             return False
     
@@ -26,9 +29,8 @@ class AxaiScraper(BaseScraper):
         await page.click('button[type="submit"], button:has-text("Login")')
     
     async def wait_for_login_success(self, page: Page):
-        await page.wait_for_url('**/dashboard', timeout=30000)
+        await page.wait_for_url('**/pay/**', timeout=30000)
     
     async def download_files(self, page: Page, download_dir: Path, date_str: str) -> List[Path]:
-        downloaded_files = []
         logger.warning("AXAI scraper download_files() not implemented")
-        return downloaded_files
+        return []

@@ -1,10 +1,12 @@
-from flask import Flask, request, jsonify
 import asyncio
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
-from src.core import get_logger, setup_logger, load_settings
+from flask import Flask, jsonify, request
+
 from main import PaymentReconciliationPipeline
+from src.core import BrowserManager, get_logger, load_accounts, load_settings, setup_logger
+from src.scrapers import get_scraper_class
 
 setup_logger()
 logger = get_logger(__name__)
@@ -60,6 +62,62 @@ def trigger_pipeline():
         }), 500
 
 
+@app.route('/test/<label>', methods=['POST'])
+def test_account(label: str):
+    logger.info(f"Test download for account: {label}")
+    
+    accounts = load_accounts()
+    account = next((a for a in accounts if a['label'] == label), None)
+    
+    if not account:
+        return jsonify({
+            'status': 'error',
+            'message': f"Account not found: {label}"
+        }), 404
+    
+    try:
+        async def run_download():
+            async with BrowserManager() as browser_manager:
+                scraper_class = get_scraper_class(account['platform'])
+                scraper = scraper_class(account)
+                downloaded_files = await scraper.download_data(browser_manager)
+                return [str(f) for f in downloaded_files]
+        
+        files = asyncio.run(run_download())
+        
+        return jsonify({
+            'status': 'success',
+            'label': label,
+            'platform': account['platform'],
+            'files': files,
+            'file_count': len(files)
+        }), 200
+        
+    except Exception as e:
+        error_msg = clean_error(e)
+        logger.error(f"Test failed for {label}: {error_msg}")
+        return jsonify({
+            'status': 'error',
+            'label': label,
+            'message': error_msg
+        }), 500
+
+
+@app.route('/accounts', methods=['GET'])
+def list_accounts():
+    accounts = load_accounts()
+    return jsonify({
+        'accounts': [
+            {
+                'label': a['label'],
+                'platform': a['platform'],
+                'need_captcha': a.get('need_captcha', False)
+            }
+            for a in accounts
+        ]
+    }), 200
+
+
 @app.route('/health', methods=['GET'])
 def health_check():
     return jsonify({
@@ -70,8 +128,8 @@ def health_check():
 
 
 if __name__ == '__main__':
-    logger.info("Starting Flask Trigger Server")
-    logger.info(f"Host: {flask_config['host']}, Port: {flask_config['port']}")
+    logger.info("Starting payment reconciliation automation server")
+    logger.info(f"{flask_config['host']}:{flask_config['port']}")
     
     app.run(
         host=flask_config['host'],

@@ -17,17 +17,27 @@ KL_TZ = ZoneInfo('Asia/Kuala_Lumpur')
 
 class BaseScraper(ABC):
     
+    LOGIN_PATH = ""
+    TARGET_PATH = ""
+    
     def __init__(self, account: dict):
         self.account = account
         self.label = account['label']
         self.platform = account['platform']
         self.credentials = account['credentials']
-        self.login_url = account['login_url']
-        self.target_url = account['target_url']
+        self.base_url = account['base_url']
         self.need_captcha = account.get('need_captcha', False)
         
         self.session_path = get_session_path(self.label)
         self.session_manager = SessionManager()
+    
+    @property
+    def login_url(self) -> str:
+        return self.base_url + self.LOGIN_PATH
+    
+    @property
+    def target_url(self) -> str:
+        return self.base_url + self.TARGET_PATH
     
     async def download_data(self, browser_manager: BrowserManager) -> List[Path]:
         logger.info(f"Starting download: {self.label}")
@@ -72,13 +82,15 @@ class BaseScraper(ABC):
             logger.error(f"Download failed: {self.label} - {error_msg}")
             raise
         finally:
-            if not context._is_closed:
+            try:
                 await context.close()
+            except Exception:
+                pass
     
     async def _check_needs_login(self, page: Page) -> bool:
         current_url = page.url
         
-        if self.login_url in current_url or 'login' in current_url.lower():
+        if 'login' in current_url.lower():
             return True
         
         is_logged_in = await self.check_if_logged_in(page)
@@ -139,13 +151,12 @@ class BaseScraper(ABC):
         pass
 
 
-from src.scrapers.axai import AxaiScraper
-from src.scrapers.fiuu import FiuuScraper
-from src.scrapers.kira import KiraScraper
-from src.scrapers.m1 import M1Scraper
-
-
 def get_scraper_class(platform: str):
+    from src.scrapers.axai import AxaiScraper
+    from src.scrapers.fiuu import FiuuScraper
+    from src.scrapers.kira import KiraScraper
+    from src.scrapers.m1 import M1Scraper
+    
     scraper_map = {
         'kira': KiraScraper,
         'axai': AxaiScraper,
