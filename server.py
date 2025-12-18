@@ -28,7 +28,15 @@ def clean_error(e: Exception) -> str:
 
 @app.after_request
 def log_response(response):
-    logger.info(f"{request.remote_addr} - {request.method} {request.path} {response.status_code}")
+    log_msg = f"{request.remote_addr} - {request.method} {request.path} {response.status_code}"
+    
+    if response.status_code >= 500:
+        logger.error(log_msg)
+    elif response.status_code >= 400:
+        logger.warning(log_msg)
+    else:
+        logger.info(log_msg)
+    
     return response
 
 
