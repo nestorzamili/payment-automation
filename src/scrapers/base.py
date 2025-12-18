@@ -1,14 +1,15 @@
 from abc import ABC, abstractmethod
-from pathlib import Path
-from typing import Optional, List
 from datetime import datetime
+from pathlib import Path
+from typing import List
 from zoneinfo import ZoneInfo
 
-from playwright.async_api import Page, BrowserContext
+from playwright.async_api import Page
+
 from src.core.browser import BrowserManager, create_page_with_kl_settings
+from src.core.loader import get_download_path, get_session_path
 from src.core.logger import get_logger
 from src.core.session import SessionManager
-from src.core.loader import get_session_path, get_download_path
 
 logger = get_logger(__name__)
 KL_TZ = ZoneInfo('Asia/Kuala_Lumpur')
@@ -20,19 +21,16 @@ class BaseScraper(ABC):
         self.account = account
         self.label = account['label']
         self.platform = account['platform']
-        self.username = account['username']
-        self.password = account['password']
+        self.credentials = account['credentials']
         self.login_url = account['login_url']
         self.target_url = account['target_url']
         self.need_captcha = account.get('need_captcha', False)
         
         self.session_path = get_session_path(self.label)
         self.session_manager = SessionManager()
-        
-        logger.info(f"Initialized scraper for {self.label} ({self.platform})")
     
-    async def download_today_data(self, browser_manager: BrowserManager) -> List[Path]:
-        logger.info(f"Starting download for {self.label}")
+    async def download_data(self, browser_manager: BrowserManager) -> List[Path]:
+        logger.info(f"Starting download: {self.label}")
         
         has_session = self.session_manager.session_exists(self.session_path)
         
@@ -43,20 +41,60 @@ class BaseScraper(ABC):
         try:
             page = await create_page_with_kl_settings(context)
             
-            logger.info(f"Navigating to {self.login_url}")
-            await page.goto(self.login_url, wait_until='networkidle')
+            await page.goto(self.target_url, wait_until='networkidle')
             
-            is_logged_in = await self.check_if_logged_in(page)
+            needs_login = await self._check_needs_login(page)
             
-            if not is_logged_in:
-                logger.info(f"Not logged in, performing login for {self.label}")
-                await self.perform_login(page)
+            if needs_login:
+                logger.info(f"Session expired, login required: {self.label}")
                 
+                if self.need_captcha:
+                    await context.close()
+                    return await self._login_with_visible_browser()
+                
+                await page.goto(self.login_url, wait_until='networkidle')
+                await self.perform_login(page)
                 await browser_manager.save_session(context, self.session_path)
+                await page.goto(self.target_url, wait_until='networkidle')
             else:
-                logger.info(f"Already logged in using saved session for {self.label}")
+                logger.info(f"Session valid: {self.label}")
             
-            logger.info(f"Navigating to target: {self.target_url}")
+            today = datetime.now(KL_TZ).strftime("%Y-%m-%d")
+            download_dir = get_download_path(self.platform, self.label, today)
+            
+            downloaded_files = await self.download_files(page, download_dir, today)
+            
+            logger.info(f"Download completed: {self.label} ({len(downloaded_files)} files)")
+            return downloaded_files
+            
+        except Exception as e:
+            error_msg = str(e).split('Call log:')[0].strip()
+            logger.error(f"Download failed: {self.label} - {error_msg}")
+            raise
+        finally:
+            if not context._is_closed:
+                await context.close()
+    
+    async def _check_needs_login(self, page: Page) -> bool:
+        current_url = page.url
+        
+        if self.login_url in current_url or 'login' in current_url.lower():
+            return True
+        
+        is_logged_in = await self.check_if_logged_in(page)
+        return not is_logged_in
+    
+    async def _login_with_visible_browser(self) -> List[Path]:
+        logger.info(f"Visible browser for CAPTCHA: {self.label}")
+        
+        async with BrowserManager(headless_override=False) as visible_browser:
+            context = await visible_browser.create_context(session_path=None)
+            page = await create_page_with_kl_settings(context)
+            
+            await page.goto(self.login_url, wait_until='networkidle')
+            await self.perform_login(page)
+            await visible_browser.save_session(context, self.session_path)
+            
             await page.goto(self.target_url, wait_until='networkidle')
             
             today = datetime.now(KL_TZ).strftime("%Y-%m-%d")
@@ -64,37 +102,25 @@ class BaseScraper(ABC):
             
             downloaded_files = await self.download_files(page, download_dir, today)
             
-            logger.info(f"Download completed for {self.label}: {len(downloaded_files)} files")
+            logger.info(f"Download completed: {self.label} ({len(downloaded_files)} files)")
             return downloaded_files
-            
-        except Exception as e:
-            error_msg = str(e).split('Call log:')[0].strip()
-            logger.error(f"Error during download for {self.label}: {error_msg}")
-            raise
-        finally:
-            await context.close()
     
     @abstractmethod
     async def check_if_logged_in(self, page: Page) -> bool:
         pass
     
     async def perform_login(self, page: Page):
-        logger.info(f"Starting login process for {self.label}")
-        
         await self.fill_login_credentials(page)
         
         if self.need_captcha:
-            logger.warning(f"CAPTCHA required for {self.label}")
-            print(f"\nCAPTCHA REQUIRED FOR: {self.label}")
-            print(f"Please solve the CAPTCHA in the browser window.")
-            print(f"Then press ENTER to continue...\n")
+            print(f"\nCAPTCHA REQUIRED: {self.label}")
+            print("Please solve the CAPTCHA then press ENTER...")
             input()
-            logger.info(f"User confirmed CAPTCHA solved for {self.label}")
         
         await self.submit_login(page)
         await self.wait_for_login_success(page)
         
-        logger.info(f"Login successful for {self.label}")
+        logger.info(f"Login successful: {self.label}")
     
     @abstractmethod
     async def fill_login_credentials(self, page: Page):
@@ -113,24 +139,22 @@ class BaseScraper(ABC):
         pass
 
 
+from src.scrapers.axai import AxaiScraper
+from src.scrapers.fiuu import FiuuScraper
 from src.scrapers.kira import KiraScraper
-from src.scrapers.ragnarok import PGRagnarokScraper
-from src.scrapers.m1pay import PGM1payScraper
-from src.scrapers.rhb_pg import PGRHBScraper
-from src.scrapers.rhb_bank import BankRHBScraper
+from src.scrapers.m1 import M1Scraper
 
 
 def get_scraper_class(platform: str):
     scraper_map = {
         'kira': KiraScraper,
-        'pg_ragnarok': PGRagnarokScraper,
-        'pg_m1pay': PGM1payScraper,
-        'pg_rhb': PGRHBScraper,
-        'bank_rhb': BankRHBScraper,
+        'axai': AxaiScraper,
+        'm1': M1Scraper,
+        'fiuu': FiuuScraper,
     }
     
     scraper_class = scraper_map.get(platform)
     if not scraper_class:
-        raise ValueError(f"Unknown platform: {platform}. Available: {list(scraper_map.keys())}")
+        raise ValueError(f"Unknown platform: {platform}")
     
     return scraper_class

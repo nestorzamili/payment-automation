@@ -62,7 +62,7 @@ class PaymentReconciliationPipeline:
                     scraper_class = get_scraper_class(platform)
                     scraper = scraper_class(account)
                     
-                    downloaded_files = await scraper.download_today_data(browser_manager)
+                    downloaded_files = await scraper.download_data(browser_manager)
                     
                     logger.info(f"Success: {label} - {len(downloaded_files)} files downloaded")
                     stats['successful'] += 1

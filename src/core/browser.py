@@ -1,18 +1,20 @@
-from playwright.async_api import async_playwright, Browser, BrowserContext, Page
-from typing import Optional
-from pathlib import Path
 import json
+from pathlib import Path
+from typing import Optional
 
-from src.core.logger import get_logger
+from playwright.async_api import Browser, BrowserContext, Page, async_playwright
+
 from src.core.loader import load_settings
+from src.core.logger import get_logger
 
 logger = get_logger(__name__)
 
 
 class BrowserManager:
     
-    def __init__(self):
+    def __init__(self, headless_override: Optional[bool] = None):
         self.settings = load_settings()
+        self.headless_override = headless_override
         self.browser: Optional[Browser] = None
         self.playwright = None
         
@@ -24,16 +26,13 @@ class BrowserManager:
         await self.close()
         
     async def initialize(self):
-        logger.info("Initializing Playwright browser")
+        headless = self.headless_override if self.headless_override is not None \
+                   else self.settings['browser']['headless']
+        
+        logger.info(f"Browser initialized (headless={headless})")
         
         self.playwright = await async_playwright().start()
-        
-        self.browser = await self.playwright.chromium.launch(
-            headless=self.settings['browser']['headless'],
-            slow_mo=self.settings['browser']['slow_mo']
-        )
-        
-        logger.info("Browser launched successfully")
+        self.browser = await self.playwright.chromium.launch(headless=headless)
         
     async def create_context(self, session_path: Optional[Path] = None) -> BrowserContext:
         if not self.browser:
@@ -54,7 +53,6 @@ class BrowserManager:
         context.set_default_timeout(self.settings['browser']['timeout'])
         
         if session_path and session_path.exists():
-            logger.info(f"Loading session from {session_path}")
             try:
                 with open(session_path, 'r', encoding='utf-8') as f:
                     cookies = json.load(f)
@@ -87,8 +85,7 @@ class BrowserManager:
 
 
 async def create_page_with_kl_settings(context: BrowserContext) -> Page:
-    page = await context.new_page()
-    return page
+    return await context.new_page()
 
 
 async def wait_for_download(page: Page, download_dir: Path, timeout: int = 120000) -> Path:
@@ -102,5 +99,5 @@ async def wait_for_download(page: Page, download_dir: Path, timeout: int = 12000
         
         await download.save_as(download_path)
         
-        logger.info(f"Download completed: {download_path}")
+        logger.info(f"Downloaded: {download_path.name}")
         return download_path

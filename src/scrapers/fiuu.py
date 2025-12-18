@@ -9,26 +9,27 @@ from src.scrapers.base import BaseScraper
 logger = get_logger(__name__)
 
 
-class KiraScraper(BaseScraper):
+class FiuuScraper(BaseScraper):
     
     async def check_if_logged_in(self, page: Page) -> bool:
         try:
-            dashboard = page.locator('div.dashboard, #user-menu, .logout-button')
+            dashboard = page.locator('div.dashboard, #main-content, .user-profile')
             return await dashboard.is_visible(timeout=3000)
         except Exception:
             return False
     
     async def fill_login_credentials(self, page: Page):
-        await page.fill('input[name="email"], input[type="email"], #email', self.credentials['username'])
-        await page.fill('input[name="password"], input[type="password"], #password', self.credentials['password'])
+        await page.fill('input[name="email"], #email', self.credentials['email'])
+        await page.fill('input[name="username"], #username', self.credentials['username'])
+        await page.fill('input[name="password"], #password', self.credentials['password'])
     
     async def submit_login(self, page: Page):
-        await page.click('button[type="submit"], button:has-text("Login"), #login-btn')
+        await page.click('button[type="submit"], button:has-text("Login")')
     
     async def wait_for_login_success(self, page: Page):
-        await page.wait_for_url('**/dashboard', timeout=30000)
+        await page.wait_for_url('**/home', timeout=30000)
     
     async def download_files(self, page: Page, download_dir: Path, date_str: str) -> List[Path]:
         downloaded_files = []
-        logger.warning("KIRA scraper download_files() not implemented")
+        logger.warning("FIUU scraper download_files() not implemented")
         return downloaded_files
