@@ -117,6 +117,11 @@ class M1Scraper(BaseScraper):
         await page.wait_for_load_state('networkidle')
         await asyncio.sleep(1)
         
+        no_data_msg = page.locator('.message:has-text("There is no data")')
+        if await no_data_msg.count() > 0:
+            logger.info(f"No data found for {filename}")
+            return None
+        
         export_button = page.get_by_role("button", name="Export All", exact=True)
         
         try:
