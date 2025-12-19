@@ -3,7 +3,8 @@ from datetime import datetime
 from typing import Callable, List
 from zoneinfo import ZoneInfo
 
-from src.core.database import Job, get_session
+from src.core.database import get_session
+from src.core.models import Job
 
 
 KL_TZ = ZoneInfo('Asia/Kuala_Lumpur')

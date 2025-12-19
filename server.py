@@ -150,6 +150,35 @@ def health_check():
     })
 
 
+@app.route('/parse/<label>', methods=['POST'])
+def parse_m1_files(label: str):
+    from pathlib import Path
+    from src.core.loader import PROJECT_ROOT
+    from src.processors.m1_parser import M1Parser
+    
+    accounts = load_accounts()
+    account = next((a for a in accounts if a['label'] == label), None)
+    
+    if not account:
+        return jsend_fail(f'Account not found: {label}', 404)
+    
+    if account['platform'] != 'm1':
+        return jsend_fail(f'Account {label} is not an M1 account', 400)
+    
+    data_dir = PROJECT_ROOT / 'data' / label
+    if not data_dir.exists():
+        return jsend_fail(f'Data directory not found: {label}', 404)
+    
+    try:
+        parser = M1Parser()
+        result = parser.process_directory(data_dir, label)
+        logger.info(f"Parsed {result['total_transactions']} transactions for {label}")
+        return jsend_success(result)
+    except Exception as e:
+        logger.error(f"Error parsing files for {label}: {e}")
+        return jsend_error(str(e), 500)
+
+
 if __name__ == '__main__':
     logger.info("Starting server")
     logger.info(f"http://{flask_config['host']}:{flask_config['port']}")
