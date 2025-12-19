@@ -60,7 +60,7 @@ class BaseScraper(ABC):
                 
                 if self.need_captcha:
                     await context.close()
-                    return await self._login_with_visible_browser(from_date, to_date)
+                    return await self._login_with_visible_browser(browser_manager, from_date, to_date)
                 
                 await page.goto(self.login_url, wait_until='networkidle')
                 await self.perform_login(page)
@@ -100,8 +100,8 @@ class BaseScraper(ABC):
         is_logged_in = await self.check_if_logged_in(page)
         return not is_logged_in
     
-    async def _login_with_visible_browser(self, from_date: str = None, to_date: str = None) -> List[Path]:
-        logger.info(f"Visible browser for CAPTCHA: {self.label}")
+    async def _login_with_visible_browser(self, browser_manager: BrowserManager, from_date: str = None, to_date: str = None) -> List[Path]:
+        logger.info(f"Visible browser for manual login: {self.label}")
         
         async with BrowserManager(headless_override=False) as visible_browser:
             context = await visible_browser.create_context(session_path=None)
@@ -111,6 +111,12 @@ class BaseScraper(ABC):
             await self.perform_login(page)
             await visible_browser.save_session(context, self.session_path)
             
+            logger.info(f"Login successful, switching to headless browser: {self.label}")
+        
+        context = await browser_manager.create_context(session_path=self.session_path)
+        
+        try:
+            page = await create_page_with_kl_settings(context)
             await page.goto(self.target_url, wait_until='networkidle')
             
             if not from_date:
@@ -124,6 +130,11 @@ class BaseScraper(ABC):
             
             logger.info(f"Download completed: {self.label} ({len(downloaded_files)} files)")
             return downloaded_files
+        finally:
+            try:
+                await context.close()
+            except Exception:
+                pass
     
     @abstractmethod
     async def check_if_logged_in(self, page: Page) -> bool:
@@ -131,15 +142,8 @@ class BaseScraper(ABC):
     
     async def perform_login(self, page: Page):
         await self.fill_login_credentials(page)
-        
-        if self.need_captcha:
-            print(f"\nCAPTCHA REQUIRED: {self.label}")
-            print("Please solve the CAPTCHA then press ENTER...")
-            input()
-        
         await self.submit_login(page)
         await self.wait_for_login_success(page)
-        
         logger.info(f"Login successful: {self.label}")
     
     @abstractmethod
