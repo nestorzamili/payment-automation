@@ -45,13 +45,15 @@ def run_pipeline_job():
 
 
 def run_test_job(account: dict, from_date: str, to_date: str):
+    from src.core.loader import PROJECT_ROOT
+    
     async def run_download():
         async with BrowserManager() as browser_manager:
             from src.scrapers import get_scraper_class
             scraper_class = get_scraper_class(account['platform'])
             scraper = scraper_class(account)
             downloaded_files = await scraper.download_data(browser_manager, from_date, to_date)
-            return [str(f) for f in downloaded_files]
+            return [str(f.relative_to(PROJECT_ROOT)) for f in downloaded_files]
 
     files = asyncio.run(run_download())
     return {
@@ -121,7 +123,12 @@ def test_account(label: str):
     if existing:
         return jsend_fail(f"Test job already running for {label} (job: {existing['job_id']})", 409)
     
-    job_id = job_manager.create_job(job_type, {'label': label, 'from_date': from_date, 'to_date': to_date})
+    job_id = job_manager.create_job(
+        job_type=job_type,
+        account_label=label,
+        from_date=from_date,
+        to_date=to_date
+    )
     job_manager.run_in_background(job_id, run_test_job, account, from_date, to_date)
     logger.info(f"Test job queued: {job_id} ({label})")
     return jsend_success({'job_id': job_id, 'label': label, 'message': 'Test job queued'}, 202)

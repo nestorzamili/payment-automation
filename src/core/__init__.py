@@ -17,7 +17,7 @@ from src.core.exceptions import (
     ConfigurationError,
     ProcessingError
 )
-from src.core.database import Job, Download, get_session, init_db
+from src.core.database import Job, get_session, init_db
 
 __all__ = [
     'BrowserManager',
@@ -40,7 +40,6 @@ __all__ = [
     'ConfigurationError',
     'ProcessingError',
     'Job',
-    'Download',
     'get_session',
     'init_db',
 ]

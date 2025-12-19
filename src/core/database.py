@@ -1,9 +1,7 @@
 import json
-from datetime import datetime
-from pathlib import Path
-from typing import Any
+from typing import List
 
-from sqlalchemy import create_engine, Column, String, Text, Integer
+from sqlalchemy import create_engine, Column, String, Text, Integer, Float
 from sqlalchemy.orm import declarative_base, sessionmaker, scoped_session
 
 from src.core.loader import PROJECT_ROOT
@@ -23,66 +21,51 @@ class Job(Base):
     __tablename__ = 'jobs'
 
     job_id = Column(Integer, primary_key=True, autoincrement=True)
-    type = Column(String(50), nullable=False)
+    job_type = Column(String(50), nullable=False)
+    account_label = Column(String(100))
+    from_date = Column(String(10))
+    to_date = Column(String(10))
     status = Column(String(20), nullable=False, default='pending')
-    metadata_json = Column(Text, default='{}')
-    result_json = Column(Text)
     error = Column(Text)
+    files_json = Column(Text)
+    file_count = Column(Integer, default=0)
+    duration_seconds = Column(Float)
     created_at = Column(String(30), nullable=False)
     updated_at = Column(String(30), nullable=False)
 
     @property
-    def job_metadata(self) -> dict:
-        return json.loads(self.metadata_json) if self.metadata_json else {}
+    def files(self) -> List[str]:
+        return json.loads(self.files_json) if self.files_json else []
 
-    @job_metadata.setter
-    def job_metadata(self, value: dict):
-        self.metadata_json = json.dumps(value)
-
-    @property
-    def result(self) -> Any:
-        return json.loads(self.result_json) if self.result_json else None
-
-    @result.setter
-    def result(self, value: Any):
-        self.result_json = json.dumps(value) if value is not None else None
+    @files.setter
+    def files(self, value: List[str]):
+        self.files_json = json.dumps(value) if value else None
+        self.file_count = len(value) if value else 0
 
     def to_dict(self) -> dict:
-        return {
+        result = {
             'job_id': self.job_id,
-            'type': self.type,
+            'job_type': self.job_type,
             'status': self.status,
-            'metadata': self.job_metadata,
-            'result': self.result,
-            'error': self.error,
             'created_at': self.created_at,
             'updated_at': self.updated_at,
         }
-
-
-class Download(Base):
-    __tablename__ = 'downloads'
-
-    download_id = Column(Integer, primary_key=True, autoincrement=True)
-    account_label = Column(String(100), nullable=False)
-    platform = Column(String(50), nullable=False)
-    from_date = Column(String(10), nullable=False)
-    to_date = Column(String(10), nullable=False)
-    file_path = Column(Text, nullable=False)
-    file_hash = Column(String(64))
-    downloaded_at = Column(String(30), nullable=False)
-
-    def to_dict(self) -> dict:
-        return {
-            'download_id': self.download_id,
-            'account_label': self.account_label,
-            'platform': self.platform,
-            'from_date': self.from_date,
-            'to_date': self.to_date,
-            'file_path': self.file_path,
-            'file_hash': self.file_hash,
-            'downloaded_at': self.downloaded_at,
-        }
+        
+        if self.account_label:
+            result['account_label'] = self.account_label
+        if self.from_date:
+            result['from_date'] = self.from_date
+        if self.to_date:
+            result['to_date'] = self.to_date
+        if self.error:
+            result['error'] = self.error
+        if self.files_json:
+            result['files'] = self.files
+            result['file_count'] = self.file_count
+        if self.duration_seconds is not None:
+            result['duration_seconds'] = self.duration_seconds
+            
+        return result
 
 
 def init_db():
@@ -94,3 +77,4 @@ def get_session():
 
 
 init_db()
+

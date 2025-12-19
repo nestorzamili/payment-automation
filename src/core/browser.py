@@ -37,6 +37,7 @@ class BrowserManager:
         self.playwright = await async_playwright().start()
         self.browser = await self.playwright.chromium.launch(
             headless=headless,
+            slow_mo=100,
             args=launch_args
         )
         self.headless = headless
