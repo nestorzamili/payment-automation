@@ -78,3 +78,23 @@ class M1Transaction(Base):
             'channel': self.channel,
             'account_label': self.account_label
         }
+
+
+class AxaiTransaction(Base):
+    __tablename__ = 'axai_transactions'
+
+    transaction_id = Column(String(50), primary_key=True)
+    transaction_date = Column(String(19), nullable=False)
+    amount = Column(Float, nullable=False)
+    channel = Column(String(50), nullable=False)
+    account_label = Column(String(50), nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    def to_dict(self) -> dict:
+        return {
+            'transaction_id': self.transaction_id,
+            'transaction_date': self.transaction_date,
+            'amount': self.amount,
+            'channel': self.channel,
+            'account_label': self.account_label
+        }
