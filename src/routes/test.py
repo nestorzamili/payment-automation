@@ -1,81 +1,122 @@
 import asyncio
 
-from flask import Blueprint, request
+from flask import Blueprint
 
 from src.core import BrowserManager, load_accounts
-from src.core.database import get_session
+from src.core.date_range_service import DateRangeService
 from src.core.loader import PROJECT_ROOT
 from src.core.logger import get_logger
-from src.core.models import Job
 from src.utils import jsend_success, jsend_fail, job_manager
 
 bp = Blueprint('test', __name__)
 logger = get_logger(__name__)
+date_service = DateRangeService()
 
 
-def run_test_job(account: dict, from_date: str, to_date: str):
-    async def run_download():
+def get_date_range(platform: str) -> tuple[str, str]:
+    if platform == 'kira':
+        return date_service.get_kira_date_range()
+    return date_service.get_pg_date_range()
+
+
+def run_download_job(accounts: list, from_date: str, to_date: str):
+    async def run():
+        results = []
         async with BrowserManager() as browser_manager:
             from src.scrapers import get_scraper_class
-            scraper_class = get_scraper_class(account['platform'])
-            scraper = scraper_class(account)
-            downloaded_files = await scraper.download_data(browser_manager, from_date, to_date)
-            return [str(f.relative_to(PROJECT_ROOT)) for f in downloaded_files]
-
-    files = asyncio.run(run_download())
+            for account in accounts:
+                try:
+                    scraper_class = get_scraper_class(account['platform'])
+                    scraper = scraper_class(account)
+                    files = await scraper.download_data(browser_manager, from_date, to_date)
+                    results.append({
+                        'label': account['label'],
+                        'status': 'success',
+                        'files': [str(f.relative_to(PROJECT_ROOT)) for f in files],
+                        'file_count': len(files)
+                    })
+                except Exception as e:
+                    results.append({
+                        'label': account['label'],
+                        'status': 'error',
+                        'error': str(e)
+                    })
+        return results
+    
+    results = asyncio.run(run())
     return {
-        'label': account['label'],
-        'platform': account['platform'],
         'from_date': from_date,
         'to_date': to_date,
-        'files': files,
-        'file_count': len(files)
+        'accounts': results,
+        'successful': len([r for r in results if r['status'] == 'success']),
+        'failed': len([r for r in results if r['status'] == 'error'])
     }
 
 
-@bp.route('/test/<label>', methods=['POST'])
-def test_account(label: str):
-    accounts = load_accounts()
-    account = next((a for a in accounts if a['label'] == label), None)
+@bp.route('/test/<platform>', methods=['POST'])
+def test_platform(platform: str):
+    all_accounts = load_accounts()
+    
+    if platform == 'kira':
+        accounts = [a for a in all_accounts if a['platform'] == 'kira']
+    elif platform in ('m1', 'axai', 'fiuu'):
+        accounts = [a for a in all_accounts if a['platform'] == platform]
+    elif platform == 'pg':
+        accounts = [a for a in all_accounts if a['platform'] in ('m1', 'axai', 'fiuu')]
+    else:
+        return jsend_fail(f'Unknown platform: {platform}', 400)
+    
+    if not accounts:
+        return jsend_fail(f'No accounts found for platform: {platform}', 404)
+    
+    from_date, to_date = get_date_range(platform)
+    
+    job_type = f"test:{platform}"
+    existing = job_manager.get_running_job_by_type(job_type)
+    if existing:
+        return jsend_fail(f"Test job already running for {platform} (job: {existing['job_id']})", 409)
+    
+    job_id = job_manager.create_job(job_type=job_type, from_date=from_date, to_date=to_date)
+    job_manager.run_in_background(job_id, run_download_job, accounts, from_date, to_date)
+    
+    logger.info(f"Test job queued: {job_id} ({platform}, {len(accounts)} accounts, {from_date} to {to_date})")
+    return jsend_success({
+        'job_id': job_id,
+        'platform': platform,
+        'accounts': [a['label'] for a in accounts],
+        'from_date': from_date,
+        'to_date': to_date,
+        'message': 'Test job queued'
+    }, 202)
+
+
+@bp.route('/test/<platform>/<label>', methods=['POST'])
+def test_account(platform: str, label: str):
+    all_accounts = load_accounts()
+    account = next((a for a in all_accounts if a['label'] == label), None)
     
     if not account:
         return jsend_fail(f'Account not found: {label}', 404)
     
-    from_date = request.args.get('from_date')
-    to_date = request.args.get('to_date')
+    if account['platform'] != platform:
+        return jsend_fail(f'Account {label} is not a {platform} account', 400)
     
-    if not from_date or not to_date:
-        return jsend_fail('from_date and to_date query params are required', 400)
-    
-    session = get_session()
-    try:
-        covered_job = session.query(Job).filter(
-            Job.account_label == label,
-            Job.status == 'completed',
-            Job.from_date <= from_date,
-            Job.to_date >= to_date
-        ).first()
-        if covered_job:
-            logger.info(f"Range {from_date} to {to_date} already covered by job {covered_job.job_id}")
-            return jsend_success({
-                'label': label,
-                'message': f'Range already covered by job {covered_job.job_id}',
-                'covered_by': covered_job.to_dict()
-            })
-    finally:
-        session.close()
+    from_date, to_date = get_date_range(platform)
     
     job_type = f"test:{label}"
     existing = job_manager.get_running_job_by_type(job_type)
     if existing:
         return jsend_fail(f"Test job already running for {label} (job: {existing['job_id']})", 409)
     
-    job_id = job_manager.create_job(
-        job_type=job_type,
-        account_label=label,
-        from_date=from_date,
-        to_date=to_date
-    )
-    job_manager.run_in_background(job_id, run_test_job, account, from_date, to_date)
-    logger.info(f"Test job queued: {job_id} ({label})")
-    return jsend_success({'job_id': job_id, 'label': label, 'message': 'Test job queued'}, 202)
+    job_id = job_manager.create_job(job_type=job_type, account_label=label, from_date=from_date, to_date=to_date)
+    job_manager.run_in_background(job_id, run_download_job, [account], from_date, to_date)
+    
+    logger.info(f"Test job queued: {job_id} ({label}, {from_date} to {to_date})")
+    return jsend_success({
+        'job_id': job_id,
+        'label': label,
+        'platform': platform,
+        'from_date': from_date,
+        'to_date': to_date,
+        'message': 'Test job queued'
+    }, 202)

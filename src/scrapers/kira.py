@@ -17,11 +17,7 @@ class KiraScraper(BaseScraper):
     TARGET_PATH = "/mms/home#!/dashboard"
     
     async def check_if_logged_in(self, page: Page) -> bool:
-        try:
-            logout_btn = page.locator('text=Logout, .logout-btn, #logout')
-            return await logout_btn.is_visible(timeout=3000)
-        except Exception:
-            return False
+        return '/mms/login' not in page.url
     
     async def fill_login_credentials(self, page: Page):
         await page.fill('#loginID', self.credentials['username'])
@@ -38,7 +34,7 @@ class KiraScraper(BaseScraper):
         download_dir.mkdir(parents=True, exist_ok=True)
         
         logger.info("Clicking Transactions on sidebar")
-        await page.get_by_role("link", name="Transactions").click()
+        await page.locator('a[href="#!transactions"]').click()
         await page.wait_for_load_state('networkidle')
         await asyncio.sleep(1)
         
@@ -52,11 +48,10 @@ class KiraScraper(BaseScraper):
         await page.locator('button[data-id="selectedTransactionStatus"]').click()
         await asyncio.sleep(0.5)
         
-        await page.locator('.bs-deselect-all').click()
+        await page.locator('.dropdown-menu.show .bs-deselect-all').click()
         await asyncio.sleep(0.3)
         
-        await page.locator('.dropdown-item').filter(has_text="SUCCESS").click()
-        await asyncio.sleep(0.3)
+        await page.locator('.dropdown-menu.show .dropdown-item').filter(has_text="SUCCESS").click()
         
         await page.keyboard.press('Escape')
         await asyncio.sleep(0.3)
@@ -72,6 +67,11 @@ class KiraScraper(BaseScraper):
         
         logger.info("Clicking Yes on modal to go to Export History")
         await page.locator('#dialogModalButton2').click()
+        await page.wait_for_load_state('networkidle')
+        await asyncio.sleep(2)
+        
+        logger.info("Clicking Search on Export History")
+        await page.locator('button[ng-click="refreshDisplay()"]').click()
         await page.wait_for_load_state('networkidle')
         await asyncio.sleep(2)
         

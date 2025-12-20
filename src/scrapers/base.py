@@ -51,18 +51,23 @@ class BaseScraper(ABC):
         try:
             page = await create_page_with_kl_settings(context)
             
-            await page.goto(self.target_url, wait_until='networkidle')
-            
-            needs_login = await self._check_needs_login(page)
+            if has_session:
+                await page.goto(self.target_url, wait_until='networkidle')
+                needs_login = await self._check_needs_login(page)
+            else:
+                await page.goto(self.login_url, wait_until='networkidle')
+                needs_login = True
             
             if needs_login:
-                logger.info(f"Session expired, login required: {self.label}")
+                logger.info(f"Login required: {self.label}")
                 
                 if self.need_captcha:
                     await context.close()
                     return await self._login_with_visible_browser(browser_manager, from_date, to_date)
                 
-                await page.goto(self.login_url, wait_until='networkidle')
+                if self.LOGIN_PATH not in page.url:
+                    await page.goto(self.login_url, wait_until='networkidle')
+                
                 await self.perform_login(page)
                 await browser_manager.save_session(context, self.session_path)
                 await page.goto(self.target_url, wait_until='networkidle')
