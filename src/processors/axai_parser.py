@@ -28,11 +28,13 @@ class AxaiParser:
         
         for _, row in df.iterrows():
             try:
+                channel = self._extract_channel(row['Payment channels'])
                 tx = {
                     'transaction_id': str(row['Order Number']),
                     'transaction_date': self._parse_date(row['Payment Time']),
                     'amount': float(row['Payment Amount']),
-                    'channel': self._extract_channel(row['Payment channels']),
+                    'transaction_type': 'FPX' if channel == 'FPX' else 'EWALLET',
+                    'channel': channel,
                     'account_label': account_label
                 }
                 transactions.append(tx)
@@ -82,6 +84,7 @@ class AxaiParser:
                     transaction_date=tx['transaction_date'],
                     amount=tx['amount'],
                     platform='axai',
+                    transaction_type=tx['transaction_type'],
                     channel=tx['channel'],
                     account_label=tx['account_label']
                 ).on_conflict_do_nothing(

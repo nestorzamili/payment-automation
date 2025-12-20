@@ -1,3 +1,6 @@
+import warnings
+warnings.filterwarnings('ignore', message='Workbook contains no default style')
+
 from src.processors.kira import process_kira_file, process_kira_folder, normalize_payment_method
 from src.processors.payment_gateway import process_pg_file, process_pg_folder, parse_pg_filename
 from src.processors.bank import process_bank_file, process_bank_folder, parse_bank_filename
