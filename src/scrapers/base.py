@@ -39,8 +39,8 @@ class BaseScraper(ABC):
     def target_url(self) -> str:
         return self.base_url + self.TARGET_PATH
     
-    async def download_data(self, browser_manager: BrowserManager, from_date: str = None, to_date: str = None) -> List[Path]:
-        logger.info(f"Starting download: {self.label}")
+    async def download_data(self, browser_manager: BrowserManager, from_date: str, to_date: str) -> List[Path]:
+        logger.info(f"Starting download: {self.label} ({from_date} to {to_date})")
         
         has_session = self.session_manager.session_exists(self.session_path)
         
@@ -69,11 +69,6 @@ class BaseScraper(ABC):
             else:
                 logger.info(f"Session valid: {self.label}")
             
-            if not from_date:
-                from_date = datetime.now(KL_TZ).strftime("%Y-%m-%d")
-            if not to_date:
-                to_date = datetime.now(KL_TZ).strftime("%Y-%m-%d")
-            
             download_dir = get_download_path(self.label)
             
             downloaded_files = await self.download_files(page, download_dir, from_date, to_date)
@@ -100,7 +95,7 @@ class BaseScraper(ABC):
         is_logged_in = await self.check_if_logged_in(page)
         return not is_logged_in
     
-    async def _login_with_visible_browser(self, browser_manager: BrowserManager, from_date: str = None, to_date: str = None) -> List[Path]:
+    async def _login_with_visible_browser(self, browser_manager: BrowserManager, from_date: str, to_date: str) -> List[Path]:
         logger.info(f"Visible browser for manual login: {self.label}")
         
         async with BrowserManager(headless_override=False) as visible_browser:
@@ -118,11 +113,6 @@ class BaseScraper(ABC):
         try:
             page = await create_page_with_kl_settings(context)
             await page.goto(self.target_url, wait_until='networkidle')
-            
-            if not from_date:
-                from_date = datetime.now(KL_TZ).strftime("%Y-%m-%d")
-            if not to_date:
-                to_date = datetime.now(KL_TZ).strftime("%Y-%m-%d")
             
             download_dir = get_download_path(self.label)
             

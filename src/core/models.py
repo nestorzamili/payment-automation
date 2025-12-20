@@ -58,15 +58,13 @@ class Job(Base):
         return result
 
 
-class M1Transaction(Base):
-    __tablename__ = 'm1_transactions'
+class KiraTransaction(Base):
+    __tablename__ = 'kira_transactions'
 
     transaction_id = Column(String(50), primary_key=True)
-    transaction_date = Column(String(19), nullable=False)
+    transaction_date = Column(String(19), nullable=False, index=True)
     amount = Column(Float, nullable=False)
-    transaction_type = Column(String(20), nullable=False)
-    channel = Column(String(50), nullable=False)
-    account_label = Column(String(50), nullable=False)
+    payment_method = Column(String(20), nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)
 
     def to_dict(self) -> dict:
@@ -74,18 +72,18 @@ class M1Transaction(Base):
             'transaction_id': self.transaction_id,
             'transaction_date': self.transaction_date,
             'amount': self.amount,
-            'transaction_type': self.transaction_type,
-            'channel': self.channel,
-            'account_label': self.account_label
+            'payment_method': self.payment_method
         }
 
 
-class AxaiTransaction(Base):
-    __tablename__ = 'axai_transactions'
+class PGTransaction(Base):
+    __tablename__ = 'pg_transactions'
 
     transaction_id = Column(String(50), primary_key=True)
-    transaction_date = Column(String(19), nullable=False)
+    transaction_date = Column(String(19), nullable=False, index=True)
     amount = Column(Float, nullable=False)
+    platform = Column(String(20), nullable=False)
+    transaction_type = Column(String(20))
     channel = Column(String(50), nullable=False)
     account_label = Column(String(50), nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)
@@ -95,6 +93,8 @@ class AxaiTransaction(Base):
             'transaction_id': self.transaction_id,
             'transaction_date': self.transaction_date,
             'amount': self.amount,
+            'platform': self.platform,
+            'transaction_type': self.transaction_type,
             'channel': self.channel,
             'account_label': self.account_label
         }

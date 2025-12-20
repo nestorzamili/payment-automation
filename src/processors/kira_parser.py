@@ -1,4 +1,3 @@
-import re
 from datetime import datetime
 from pathlib import Path
 from typing import List
@@ -7,33 +6,25 @@ import pandas as pd
 from sqlalchemy.dialects.sqlite import insert
 
 from src.core.database import get_session
-from src.core.models import PGTransaction
+from src.core.models import KiraTransaction
 from src.core.logger import get_logger
 
 logger = get_logger(__name__)
 
 
-class AxaiParser:
+class KiraParser:
     
-    COLUMNS = {
-        'order number': 'transaction_id',
-        'Payment Time': 'transaction_date',
-        'Payment Amount': 'amount',
-        'Payment channels': 'channel'
-    }
-    
-    def parse_file(self, file_path: Path, account_label: str) -> List[dict]:
+    def parse_file(self, file_path: Path) -> List[dict]:
         df = pd.read_excel(file_path)
         transactions = []
         
         for _, row in df.iterrows():
             try:
                 tx = {
-                    'transaction_id': str(row['Order Number']),
-                    'transaction_date': self._parse_date(row['Payment Time']),
-                    'amount': float(row['Payment Amount']),
-                    'channel': self._extract_channel(row['Payment channels']),
-                    'account_label': account_label
+                    'transaction_id': str(row.get('Transaction ID', '')),
+                    'transaction_date': self._parse_date(row.get('Created On')),
+                    'amount': float(row.get('Transaction Amount', 0)),
+                    'payment_method': self._normalize_payment_method(row.get('Payment Method'))
                 }
                 transactions.append(tx)
             except Exception as e:
@@ -42,11 +33,24 @@ class AxaiParser:
         
         return transactions
     
-    def _extract_channel(self, value: str) -> str:
-        match = re.search(r'\s+(\w+)\s*\(', str(value))
-        if match:
-            return match.group(1)
-        return str(value)
+    def _normalize_payment_method(self, value) -> str:
+        if not value:
+            return 'ewallet'
+        
+        s = str(value).upper().strip()
+        
+        if s == 'FPX' or 'FPX B2C' in s or 'CASA' in s:
+            return 'FPX'
+        if s == 'FPXC' or 'FPX B2B' in s:
+            return 'FPXC'
+        if s == 'TNG' or 'TOUCH' in s or 'TOUCHNGO' in s:
+            return 'TNG'
+        if s == 'BOOST' or 'BOOST' in s:
+            return 'BOOST'
+        if s == 'SHOPEE' or 'SHOPEE' in s:
+            return 'Shopee'
+        
+        return 'ewallet'
     
     def _parse_date(self, date_value) -> str:
         if isinstance(date_value, datetime):
@@ -59,6 +63,7 @@ class AxaiParser:
                 '%Y-%m-%d %H:%M:%S',
                 '%Y-%m-%d %H:%M',
                 '%d/%m/%Y %H:%M:%S',
+                '%d/%m/%Y %H:%M',
             ]
             for fmt in formats:
                 try:
@@ -77,13 +82,11 @@ class AxaiParser:
         
         try:
             for tx in transactions:
-                stmt = insert(PGTransaction).values(
+                stmt = insert(KiraTransaction).values(
                     transaction_id=tx['transaction_id'],
                     transaction_date=tx['transaction_date'],
                     amount=tx['amount'],
-                    platform='axai',
-                    channel=tx['channel'],
-                    account_label=tx['account_label']
+                    payment_method=tx['payment_method']
                 ).on_conflict_do_nothing(
                     index_elements=['transaction_id']
                 )
@@ -98,19 +101,18 @@ class AxaiParser:
         finally:
             session.close()
     
-    def process_directory(self, directory: Path, account_label: str) -> dict:
+    def process_directory(self, directory: Path) -> dict:
         excel_files = list(directory.glob('*.xlsx'))
         excel_files = [f for f in excel_files if not f.name.startswith('~$')]
         
         result = {
-            'account_label': account_label,
             'files_processed': 0,
             'total_transactions': 0
         }
         
         for file_path in excel_files:
             logger.info(f"Processing: {file_path.name}")
-            transactions = self.parse_file(file_path, account_label)
+            transactions = self.parse_file(file_path)
             
             if transactions:
                 saved = self.save_transactions(transactions)

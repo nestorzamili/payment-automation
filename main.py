@@ -11,6 +11,7 @@ from src.core import (
     PROJECT_ROOT,
     BrowserManager
 )
+from src.core.date_range_service import DateRangeService
 from src.scrapers import get_scraper_class
 from src.processors import (
     process_kira_folder,
@@ -36,6 +37,7 @@ class PaymentReconciliationPipeline:
         self.settings = load_settings()
         self.accounts = load_accounts()
         self.today = datetime.now(KL_TZ).strftime("%Y-%m-%d")
+        self.date_service = DateRangeService()
         
         logger.info("Payment Reconciliation Automation Pipeline")
         logger.info(f"Date: {self.today} (Kuala Lumpur Time)")
@@ -44,11 +46,21 @@ class PaymentReconciliationPipeline:
     async def download_all_data(self) -> dict:
         logger.info("Starting sequential download from all accounts")
         
+        kira_from, kira_to = self.date_service.get_kira_date_range()
+        pg_from, pg_to = self.date_service.get_pg_date_range()
+        
+        logger.info(f"Kira date range: {kira_from} to {kira_to}")
+        logger.info(f"PG date range: {pg_from} to {pg_to}")
+        
         stats = {
             'total_accounts': len(self.accounts),
             'successful': 0,
             'failed': 0,
-            'failed_accounts': []
+            'failed_accounts': [],
+            'date_ranges': {
+                'kira': {'from': kira_from, 'to': kira_to},
+                'pg': {'from': pg_from, 'to': pg_to}
+            }
         }
         
         async with BrowserManager() as browser_manager:
@@ -56,13 +68,18 @@ class PaymentReconciliationPipeline:
                 label = account['label']
                 platform = account['platform']
                 
-                logger.info(f"Processing account: {label} ({platform})")
+                if platform == 'kira':
+                    from_date, to_date = kira_from, kira_to
+                else:
+                    from_date, to_date = pg_from, pg_to
+                
+                logger.info(f"Processing account: {label} ({platform}) [{from_date} to {to_date}]")
                 
                 try:
                     scraper_class = get_scraper_class(platform)
                     scraper = scraper_class(account)
                     
-                    downloaded_files = await scraper.download_data(browser_manager)
+                    downloaded_files = await scraper.download_data(browser_manager, from_date, to_date)
                     
                     logger.info(f"Success: {label} - {len(downloaded_files)} files downloaded")
                     stats['successful'] += 1

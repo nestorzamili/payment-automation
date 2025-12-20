@@ -7,7 +7,7 @@ import pandas as pd
 from sqlalchemy.dialects.sqlite import insert
 
 from src.core.database import get_session
-from src.core.models import M1Transaction
+from src.core.models import PGTransaction
 from src.core.logger import get_logger
 
 logger = get_logger(__name__)
@@ -125,10 +125,11 @@ class M1Parser:
         
         try:
             for tx in transactions:
-                stmt = insert(M1Transaction).values(
+                stmt = insert(PGTransaction).values(
                     transaction_id=tx['transaction_id'],
                     transaction_date=tx['transaction_date'],
                     amount=tx['amount'],
+                    platform='m1',
                     transaction_type=tx['transaction_type'],
                     channel=tx['channel'],
                     account_label=tx['account_label']
