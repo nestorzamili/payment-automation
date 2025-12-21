@@ -9,6 +9,7 @@ from sqlalchemy.dialects.sqlite import insert
 from src.core.database import get_session
 from src.core.models import PGTransaction
 from src.core.logger import get_logger
+from src.parser.helper import get_parsed_files, record_parsed_file
 
 logger = get_logger(__name__)
 
@@ -151,14 +152,19 @@ class M1Parser:
         excel_files = list(directory.glob('*.xlsx'))
         excel_files = [f for f in excel_files if not f.name.startswith('~$')]
         
+        # Skip already-parsed files
+        parsed_files = get_parsed_files(account_label, 'm1')
+        new_files = [f for f in excel_files if f.name not in parsed_files]
+        
         result = {
             'account_label': account_label,
             'files_processed': 0,
+            'files_skipped': len(excel_files) - len(new_files),
             'total_transactions': 0,
             'by_type': {}
         }
         
-        for file_path in excel_files:
+        for file_path in new_files:
             logger.info(f"Processing: {file_path.name}")
             transactions = self.parse_file(file_path, account_label)
             
@@ -171,5 +177,9 @@ class M1Parser:
                 channel = transactions[0]['channel']
                 key = f"{tx_type}:{channel}"
                 result['by_type'][key] = result['by_type'].get(key, 0) + saved
+                
+                # Record the parsed file
+                record_parsed_file(file_path.name, account_label, 'm1', saved)
         
         return result
+

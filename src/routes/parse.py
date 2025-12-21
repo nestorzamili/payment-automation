@@ -3,9 +3,9 @@ from flask import Blueprint
 from src.core import load_accounts
 from src.core.loader import PROJECT_ROOT
 from src.core.logger import get_logger
-from src.processors.m1_parser import M1Parser
-from src.processors.axai_parser import AxaiParser
-from src.processors.kira_parser import KiraParser
+from src.parser.m1 import M1Parser
+from src.parser.axai import AxaiParser
+from src.parser.kira import KiraParser
 from src.utils import jsend_success, jsend_error
 
 bp = Blueprint('parse', __name__)
