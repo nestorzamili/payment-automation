@@ -1,5 +1,5 @@
 from datetime import datetime, timedelta, date
-from typing import Tuple
+from typing import Tuple, Optional
 from zoneinfo import ZoneInfo
 
 from sqlalchemy import func
@@ -16,21 +16,26 @@ DEFAULT_START_DATE = date(2025, 10, 1)
 
 class DateRangeService:
     
-    def get_date_range(self, platform: str) -> Tuple[str, str]:
-        """Get date range for download based on last completed job."""
+    def get_date_range(self, platform: str) -> Optional[Tuple[str, str]]:
         last_job = self._get_last_completed_download(platform)
+        today = datetime.now(KL_TZ).date()
         
         if last_job and last_job.to_date:
-            from_date = datetime.strptime(last_job.to_date, '%Y-%m-%d').date()
+            last_to_date = datetime.strptime(last_job.to_date, '%Y-%m-%d').date()
+            
+            if last_to_date >= today:
+                logger.info(f"{platform}: Already up to date (last_to_date={last_to_date}, today={today})")
+                return None
+            
+            from_date = last_to_date
             logger.info(f"{platform}: Last download to_date {from_date}")
         else:
             from_date = DEFAULT_START_DATE
             logger.info(f"{platform}: No completed download, starting from {from_date}")
         
-        return self._calculate_range(from_date, platform)
+        return self._calculate_range(from_date, today, platform)
     
     def _get_last_completed_download(self, platform: str) -> Job | None:
-        """Get the most recent completed download job for a platform."""
         session = get_session()
         try:
             job = session.query(Job).filter(
@@ -42,13 +47,7 @@ class DateRangeService:
         finally:
             session.close()
     
-    def _calculate_range(self, from_date: date, platform: str) -> Tuple[str, str]:
-        today = datetime.now(KL_TZ).date()
-        
-        if from_date >= today:
-            logger.info(f"{platform}: Already up to date (from_date={from_date}, today={today})")
-            return from_date.strftime('%Y-%m-%d'), today.strftime('%Y-%m-%d')
-        
+    def _calculate_range(self, from_date: date, today: date, platform: str) -> Tuple[str, str]:
         gap = (today - from_date).days
         if gap > MAX_RANGE_DAYS:
             to_date = from_date + timedelta(days=MAX_RANGE_DAYS)
@@ -57,3 +56,4 @@ class DateRangeService:
             to_date = today
         
         return from_date.strftime('%Y-%m-%d'), to_date.strftime('%Y-%m-%d')
+

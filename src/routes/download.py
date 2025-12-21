@@ -15,7 +15,7 @@ logger = get_logger(__name__)
 date_service = DateRangeService()
 
 
-def get_date_range(platform: str) -> tuple[str, str]:
+def get_date_range(platform: str) -> tuple[str, str] | None:
     return date_service.get_date_range(platform)
 
 
@@ -77,7 +77,15 @@ def download_platform(platform: str):
     if not accounts:
         return jsend_fail(f'No accounts found for platform: {platform}', 404)
     
-    from_date, to_date = get_date_range(platform)
+    date_range = get_date_range(platform)
+    if date_range is None:
+        return jsend_success({
+            'platform': platform,
+            'status': 'skipped',
+            'message': f'{platform}: Already up to date, no download needed'
+        }, 200)
+    
+    from_date, to_date = date_range
     
     job_type = "download"
     account_labels = ','.join([a['label'] for a in accounts])
@@ -110,7 +118,16 @@ def download_account(platform: str, label: str):
     if account['platform'] != platform:
         return jsend_fail(f'Account {label} is not a {platform} account', 400)
     
-    from_date, to_date = get_date_range(platform)
+    date_range = get_date_range(platform)
+    if date_range is None:
+        return jsend_success({
+            'label': label,
+            'platform': platform,
+            'status': 'skipped',
+            'message': f'{label}: Already up to date, no download needed'
+        }, 200)
+    
+    from_date, to_date = date_range
     
     job_type = "download"
     existing = job_manager.get_running_job_by_type(job_type)
