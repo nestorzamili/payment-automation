@@ -70,7 +70,7 @@ def download_platform(platform: str):
     elif platform in ('m1', 'axai', 'fiuu'):
         accounts = [a for a in all_accounts if a['platform'] == platform]
     elif platform == 'pg':
-        accounts = [a for a in all_accounts if a['platform'] in ('m1', 'axai', 'fiuu')]
+        accounts = [a for a in all_accounts if a['platform'] in ('m1', 'axai')]
     else:
         return jsend_fail(f'Unknown platform: {platform}', 400)
     

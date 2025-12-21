@@ -55,7 +55,7 @@ class AxaiScraper(BaseScraper):
         await human_delay(1.0, 2.0)
         
         search_button = page.locator('button:has-text("Search")')
-        await search_button.wait_for(state='visible', timeout=10000)
+        await search_button.wait_for(state='visible', timeout=self.timeout)
         
         logger.info("Successfully navigated to Payment Details page")
     

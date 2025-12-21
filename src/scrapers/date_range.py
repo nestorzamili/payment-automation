@@ -34,7 +34,7 @@ class DateRangeService:
         session = get_session()
         try:
             job = session.query(Job).filter(
-                Job.job_type.like('download:%'),
+                Job.job_type == 'download',
                 Job.platform == platform,
                 Job.status == 'completed'
             ).order_by(Job.to_date.desc()).first()

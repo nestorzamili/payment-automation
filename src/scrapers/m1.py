@@ -28,7 +28,7 @@ class M1Scraper(BaseScraper):
         await page.get_by_role("button", name="Login").click()
     
     async def wait_for_login_success(self, page: Page):
-        await page.wait_for_url(lambda url: '/user/login' not in url, timeout=30000)
+        await page.wait_for_url(lambda url: '/user/login' not in url, timeout=self.timeout)
     
     async def download_files(self, page: Page, download_dir: Path, from_date: str, to_date: str) -> List[Path]:
         logger.info(f"Downloading M1: {from_date} to {to_date}")
@@ -125,13 +125,13 @@ class M1Scraper(BaseScraper):
         export_button = page.get_by_role("button", name="Export All", exact=True)
         
         try:
-            await export_button.wait_for(state='visible', timeout=5000)
+            await export_button.wait_for(state='visible', timeout=self.timeout)
         except:
             logger.warning(f"Export button not visible for {filename}")
             return None
         
         try:
-            async with page.expect_download(timeout=60000) as download_info:
+            async with page.expect_download(timeout=self.timeout) as download_info:
                 await export_button.click()
             
             download = await download_info.value

@@ -27,7 +27,7 @@ class KiraScraper(BaseScraper):
         await page.click('.login-button button')
     
     async def wait_for_login_success(self, page: Page):
-        await page.wait_for_url('**/home**', timeout=30000)
+        await page.wait_for_url('**/home**', timeout=self.timeout)
     
     async def download_files(self, page: Page, download_dir: Path, from_date: str, to_date: str) -> List[Path]:
         logger.info(f"Downloading KIRA: {from_date} to {to_date}")

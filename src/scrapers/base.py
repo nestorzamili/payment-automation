@@ -7,7 +7,7 @@ from zoneinfo import ZoneInfo
 from playwright.async_api import Page
 
 from src.scrapers.browser import BrowserManager, create_page_with_kl_settings
-from src.core.loader import get_download_path, get_session_path
+from src.core.loader import get_download_path, get_session_path, load_settings
 from src.core.logger import get_logger
 from src.scrapers.session import SessionManager
 
@@ -30,6 +30,9 @@ class BaseScraper(ABC):
         
         self.session_path = get_session_path(self.label)
         self.session_manager = SessionManager()
+        
+        settings = load_settings()
+        self.timeout = settings['browser']['timeout']
     
     @property
     def login_url(self) -> str:
@@ -41,6 +44,34 @@ class BaseScraper(ABC):
     
     async def download_data(self, browser_manager: BrowserManager, from_date: str, to_date: str) -> List[Path]:
         logger.info(f"Starting download: {self.label} ({from_date} to {to_date})")
+        
+        if self.need_captcha:
+            has_session = self.session_manager.session_exists(self.session_path)
+            
+            if has_session:
+                context = await browser_manager.create_context(session_path=self.session_path)
+                try:
+                    page = await create_page_with_kl_settings(context)
+                    await page.goto(self.target_url, wait_until='networkidle')
+                    
+                    if not await self._check_needs_login(page):
+                        logger.info(f"Session valid: {self.label}")
+                        download_dir = get_download_path(self.label)
+                        downloaded_files = await self.download_files(page, download_dir, from_date, to_date)
+                        logger.info(f"Download completed: {self.label} ({len(downloaded_files)} files)")
+                        return downloaded_files
+                    
+                    logger.info(f"Session expired: {self.label}")
+                except Exception:
+                    logger.info(f"Session check failed: {self.label}")
+                finally:
+                    try:
+                        await context.close()
+                    except Exception:
+                        pass
+            
+            logger.info(f"Login required (visible browser): {self.label}")
+            return await self._login_with_visible_browser(browser_manager, from_date, to_date)
         
         has_session = self.session_manager.session_exists(self.session_path)
         
@@ -60,10 +91,6 @@ class BaseScraper(ABC):
             
             if needs_login:
                 logger.info(f"Login required: {self.label}")
-                
-                if self.need_captcha:
-                    await context.close()
-                    return await self._login_with_visible_browser(browser_manager, from_date, to_date)
                 
                 if self.LOGIN_PATH not in page.url:
                     await page.goto(self.login_url, wait_until='networkidle')

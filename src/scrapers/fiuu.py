@@ -20,7 +20,7 @@ class FiuuScraper(BaseScraper):
         return 'mod=home' in page.url or 'mod=reports' in page.url
     
     async def fill_login_credentials(self, page: Page):
-        await page.locator('#btnSbmt').wait_for(state='visible', timeout=30000)
+        await page.locator('#btnSbmt').wait_for(state='visible', timeout=self.timeout)
         await asyncio.sleep(0.5)
         await page.fill('#txt_merchant', self.credentials['username'])
         await asyncio.sleep(0.3)
@@ -34,7 +34,7 @@ class FiuuScraper(BaseScraper):
         await asyncio.sleep(1)
     
     async def wait_for_login_success(self, page: Page):
-        await page.wait_for_url('**/mod=home**', timeout=30000)
+        await page.wait_for_url('**/mod=home**', timeout=self.timeout)
     
     async def download_files(self, page: Page, download_dir: Path, from_date: str, to_date: str) -> List[Path]:
         logger.info(f"Downloading FIUU: {from_date} to {to_date}")
@@ -68,7 +68,7 @@ class FiuuScraper(BaseScraper):
         await asyncio.sleep(2)
         
         logger.info("Waiting for report table")
-        await page.locator('#tbl_report').wait_for(state='visible', timeout=30000)
+        await page.locator('#tbl_report').wait_for(state='visible', timeout=self.timeout)
         await asyncio.sleep(1)
         
         logger.info("Clicking Download on first row")
