@@ -29,7 +29,7 @@ class JobManager:
         from_date: str = None,
         to_date: str = None
     ) -> int:
-        now = datetime.now(KL_TZ).isoformat()
+        now = datetime.now(KL_TZ).strftime('%Y-%m-%d %H:%M:%S')
         
         session = get_session()
         try:
@@ -63,7 +63,7 @@ class JobManager:
             job = session.query(Job).filter_by(job_id=job_id).first()
             if job:
                 job.status = status
-                job.updated_at = datetime.now(KL_TZ).isoformat()
+                job.updated_at = datetime.now(KL_TZ).strftime('%Y-%m-%d %H:%M:%S')
                 if files is not None:
                     job.files = files
                 if duration_seconds is not None:

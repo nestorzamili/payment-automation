@@ -33,6 +33,7 @@ class BaseScraper(ABC):
         
         settings = load_settings()
         self.timeout = settings['browser']['timeout']
+        self.download_timeout = settings['browser'].get('download_timeout', self.timeout)
     
     @property
     def login_url(self) -> str:

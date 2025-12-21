@@ -1,10 +1,16 @@
 import json
 from datetime import datetime
 from typing import List
+from zoneinfo import ZoneInfo
 
 from sqlalchemy import Column, String, Float, DateTime, Text, Integer
 
 from src.core.database import Base
+
+KL_TZ = ZoneInfo('Asia/Kuala_Lumpur')
+
+def _now_kl():
+    return datetime.now(KL_TZ).strftime('%Y-%m-%d %H:%M:%S')
 
 
 class Job(Base):
@@ -68,7 +74,7 @@ class KiraTransaction(Base):
     transaction_date = Column(String(19), nullable=False, index=True)
     amount = Column(Float, nullable=False)
     payment_method = Column(String(20), nullable=False)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(String(19), default=_now_kl)
 
     def to_dict(self) -> dict:
         return {
@@ -89,7 +95,7 @@ class PGTransaction(Base):
     transaction_type = Column(String(20))
     channel = Column(String(50), nullable=False)
     account_label = Column(String(50), nullable=False)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(String(19), default=_now_kl)
 
     def to_dict(self) -> dict:
         return {

@@ -131,7 +131,7 @@ class M1Scraper(BaseScraper):
             return None
         
         try:
-            async with page.expect_download(timeout=self.timeout) as download_info:
+            async with page.expect_download(timeout=self.download_timeout) as download_info:
                 await export_button.click()
             
             download = await download_info.value
