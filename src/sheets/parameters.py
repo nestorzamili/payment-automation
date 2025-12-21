@@ -1,5 +1,5 @@
 import pandas as pd
-from typing import Dict, Any
+from typing import Dict, List, Set, Any, Optional
 
 from src.sheets.client import SheetsClient
 from src.core.logger import get_logger
@@ -14,9 +14,13 @@ class ParameterLoader:
         self.client = sheets_client
         self.settings = load_settings()
         self.sheet_name = self.settings['google_sheets']['sheets']['parameters']
-        self.parameters = None
+        
+        self._settlement_rules: Optional[pd.DataFrame] = None
+        self._fees: Optional[pd.DataFrame] = None
+        self._add_on_holidays: Optional[Set[str]] = None
+        self._loaded = False
     
-    def load_parameters(self) -> pd.DataFrame:
+    def load_all_parameters(self) -> Dict[str, Any]:
         logger.info(f"Loading parameters from sheet: {self.sheet_name}")
         
         try:
@@ -24,63 +28,163 @@ class ParameterLoader:
             
             if not data:
                 logger.warning("No parameter data found")
-                return pd.DataFrame()
+                return {}
             
-            header = data[0]
-            rows = data[1:]
-            df = pd.DataFrame(rows, columns=header)
+            sections = self._parse_sections(data)
             
-            logger.info(f"Loaded {len(df)} parameter rows")
-            self.parameters = df
-            return df
+            if 'SETTLEMENT_RULES' in sections:
+                self._settlement_rules = self._parse_settlement_rules(sections['SETTLEMENT_RULES'])
+                logger.info(f"Loaded {len(self._settlement_rules)} settlement rules")
+            
+            if 'FEES' in sections:
+                self._fees = self._parse_fees(sections['FEES'])
+                logger.info(f"Loaded {len(self._fees)} fee configurations")
+            
+            if 'ADD_ON_HOLIDAYS' in sections:
+                self._add_on_holidays = self._parse_add_on_holidays(sections['ADD_ON_HOLIDAYS'])
+                logger.info(f"Loaded {len(self._add_on_holidays)} add-on holidays")
+            
+            self._loaded = True
+            
+            return {
+                'settlement_rules': self._settlement_rules,
+                'fees': self._fees,
+                'add_on_holidays': self._add_on_holidays
+            }
             
         except Exception as e:
             logger.error(f"Failed to load parameters: {e}")
             raise
     
-    def get_settlement_rule(self, merchant: str, channel: str) -> str:
-        if self.parameters is None:
-            self.load_parameters()
+    def _parse_sections(self, data: List[List[str]]) -> Dict[str, List[List[str]]]:
+        sections = {}
+        current_section = None
+        current_data = []
         
-        matching = self.parameters[
-            (self.parameters['Merchant'] == merchant) & 
-            (self.parameters['Channel'] == channel)
+        for row in data:
+            if not row or all(cell.strip() == '' for cell in row):
+                if current_section and current_data:
+                    sections[current_section] = current_data
+                current_section = None
+                current_data = []
+                continue
+            
+            first_cell = row[0].strip() if row else ''
+            if first_cell.startswith('SECTION:'):
+                section_name = first_cell.replace('SECTION:', '').strip()
+                current_section = section_name
+                current_data = []
+                continue
+            
+            if current_section:
+                current_data.append(row)
+        
+        if current_section and current_data:
+            sections[current_section] = current_data
+        
+        return sections
+    
+    def _parse_settlement_rules(self, data: List[List[str]]) -> pd.DataFrame:
+        if not data:
+            return pd.DataFrame()
+        
+        header = data[0]
+        rows = data[1:]
+        return pd.DataFrame(rows, columns=header)
+    
+    def _parse_fees(self, data: List[List[str]]) -> pd.DataFrame:
+        if not data:
+            return pd.DataFrame()
+        
+        header = data[0]
+        rows = data[1:]
+        df = pd.DataFrame(rows, columns=header)
+        
+        if 'Year' in df.columns:
+            df['Year'] = pd.to_numeric(df['Year'], errors='coerce')
+        if 'Month' in df.columns:
+            df['Month'] = pd.to_numeric(df['Month'], errors='coerce')
+        if 'Fee_Value' in df.columns:
+            df['Fee_Value'] = pd.to_numeric(df['Fee_Value'], errors='coerce')
+        
+        return df
+    
+    def _parse_add_on_holidays(self, data: List[List[str]]) -> Set[str]:
+        holidays = set()
+        
+        if not data:
+            return holidays
+        
+        for row in data[1:]:
+            if row and row[0].strip():
+                holidays.add(row[0].strip())
+        
+        return holidays
+    
+    def _ensure_loaded(self):
+        if not self._loaded:
+            self.load_all_parameters()
+    
+    def get_settlement_rule(self, account_label: str, channel: str) -> str:
+        self._ensure_loaded()
+        
+        if self._settlement_rules is None or self._settlement_rules.empty:
+            logger.warning(f"No settlement rules loaded, using T+1 for {account_label}/{channel}")
+            return 'T+1'
+        
+        matching = self._settlement_rules[
+            self._settlement_rules['Account_Label'] == account_label
         ]
         
-        if not matching.empty:
-            return matching.iloc[0]['Settlement Rule']
+        if matching.empty:
+            logger.warning(f"No settlement rule for account {account_label}, using T+1")
+            return 'T+1'
         
-        logger.warning(f"No settlement rule found for {merchant}/{channel}, using T+1")
+        channel_lower = channel.lower() if channel else ''
+        columns_lower = {col.lower(): col for col in matching.columns}
+        
+        if channel_lower in columns_lower:
+            actual_col = columns_lower[channel_lower]
+            rule = matching.iloc[0][actual_col]
+            if rule and str(rule).strip():
+                return str(rule).strip()
+        
+        logger.warning(f"No settlement rule for {account_label}/{channel}, using T+1")
         return 'T+1'
     
-    def get_fee_rate(self, merchant: str, channel: str, month: str) -> float:
-        if self.parameters is None:
-            self.load_parameters()
+    def get_fee_config(self, year: int, month: int, pg: str, payment_type: str) -> Dict[str, Any]:
+        self._ensure_loaded()
         
-        matching = self.parameters[
-            (self.parameters['Merchant'] == merchant) & 
-            (self.parameters['Channel'] == channel) &
-            (self.parameters['Month'] == month)
+        default = {'fee_type': 'percent', 'fee_value': 0.0}
+        
+        if self._fees is None or self._fees.empty:
+            logger.warning(f"No fees loaded, using default for {year}/{month}/{pg}/{payment_type}")
+            return default
+        
+        pg_lower = pg.lower() if pg else ''
+        payment_type_lower = payment_type.lower() if payment_type else ''
+        
+        matching = self._fees[
+            (self._fees['Year'] == year) &
+            (self._fees['Month'] == month) &
+            (self._fees['PG'].str.lower() == pg_lower) &
+            (self._fees['Payment_Type'].str.lower() == payment_type_lower)
         ]
         
-        if not matching.empty:
-            fee = matching.iloc[0]['Fee Rate']
-            return float(fee)
+        if matching.empty:
+            logger.warning(f"No fee config for {year}/{month}/{pg}/{payment_type}, using default")
+            return default
         
-        logger.warning(f"No fee rate found for {merchant}/{channel}/{month}, using 0")
-        return 0.0
+        row = matching.iloc[0]
+        return {
+            'fee_type': str(row['Fee_Type']).strip(),
+            'fee_value': float(row['Fee_Value']) if pd.notna(row['Fee_Value']) else 0.0
+        }
     
-    def get_withdrawal_rate(self, merchant: str, month: str) -> float:
-        if self.parameters is None:
-            self.load_parameters()
+    def get_add_on_holidays(self) -> Set[str]:
+        self._ensure_loaded()
         
-        matching = self.parameters[
-            (self.parameters['Merchant'] == merchant) &
-            (self.parameters['Month'] == month)
-        ]
+        if self._add_on_holidays is None:
+            return set()
         
-        if not matching.empty:
-            rate = matching.iloc[0]['Withdrawal Rate']
-            return float(rate)
-        
-        return 0.0
+        return self._add_on_holidays

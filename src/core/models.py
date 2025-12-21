@@ -74,6 +74,9 @@ class KiraTransaction(Base):
     transaction_date = Column(String(19), nullable=False, index=True)
     amount = Column(Float, nullable=False)
     payment_method = Column(String(20), nullable=False)
+    mdr = Column(Float)
+    settlement_amount = Column(Float)
+    merchant = Column(String(100))
     created_at = Column(String(19), default=_now_kl)
 
     def to_dict(self) -> dict:
@@ -81,7 +84,10 @@ class KiraTransaction(Base):
             'transaction_id': self.transaction_id,
             'transaction_date': self.transaction_date,
             'amount': self.amount,
-            'payment_method': self.payment_method
+            'payment_method': self.payment_method,
+            'mdr': self.mdr,
+            'settlement_amount': self.settlement_amount,
+            'merchant': self.merchant
         }
 
 

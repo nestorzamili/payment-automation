@@ -5,8 +5,10 @@ def jsend_success(data: dict, http_code: int = 200):
     return jsonify({'status': 'success', 'data': data}), http_code
 
 
-def jsend_fail(message: str, http_code: int = 400):
-    return jsonify({'status': 'fail', 'message': message}), http_code
+def jsend_fail(data, http_code: int = 400):
+    if isinstance(data, str):
+        return jsonify({'status': 'fail', 'data': {'message': data}}), http_code
+    return jsonify({'status': 'fail', 'data': data}), http_code
 
 
 def jsend_error(message: str, http_code: int = 500, code: str = None, data: dict = None):

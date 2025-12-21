@@ -56,7 +56,12 @@ def format_date_string(date: datetime) -> str:
     return date.strftime('%Y-%m-%d')
 
 
-def calculate_settlement_date(transaction_date_str: str, settlement_rule: str, holiday_set: Set[str]) -> str:
+def calculate_settlement_date(
+    transaction_date_str: str, 
+    settlement_rule: str, 
+    holiday_set: Set[str],
+    add_on_holidays: Set[str] = None
+) -> str:
     if not transaction_date_str or not settlement_rule:
         return ''
     
@@ -76,16 +81,20 @@ def calculate_settlement_date(transaction_date_str: str, settlement_rule: str, h
     except Exception:
         return ''
     
+    all_holidays = set(holiday_set) if holiday_set else set()
+    if add_on_holidays:
+        all_holidays = all_holidays.union(add_on_holidays)
+    
     business_days_added = 0
     while business_days_added < days_to_add:
         current_date += timedelta(days=1)
         current_date_str = format_date_string(current_date)
         
-        if not is_weekend(current_date) and not is_holiday(current_date_str, holiday_set):
+        if not is_weekend(current_date) and not is_holiday(current_date_str, all_holidays):
             business_days_added += 1
     
     settlement_date_str = format_date_string(current_date)
-    while is_weekend(current_date) or is_holiday(settlement_date_str, holiday_set):
+    while is_weekend(current_date) or is_holiday(settlement_date_str, all_holidays):
         current_date += timedelta(days=1)
         settlement_date_str = format_date_string(current_date)
     

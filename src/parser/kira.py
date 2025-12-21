@@ -21,11 +21,18 @@ class KiraParser:
         
         for _, row in df.iterrows():
             try:
+                mdr_value = row.get('MDR')
+                settlement_value = row.get('Actual Amount')
+                merchant_value = row.get('Merchant')
+                
                 tx = {
                     'transaction_id': str(row.get('Transaction ID', '')),
                     'transaction_date': self._parse_date(row.get('Created On')),
                     'amount': float(row.get('Transaction Amount', 0)),
-                    'payment_method': self._normalize_payment_method(row.get('Payment Method'))
+                    'payment_method': self._normalize_payment_method(row.get('Payment Method')),
+                    'mdr': float(mdr_value) if pd.notna(mdr_value) else None,
+                    'settlement_amount': float(settlement_value) if pd.notna(settlement_value) else None,
+                    'merchant': str(merchant_value).strip() if pd.notna(merchant_value) else None
                 }
                 transactions.append(tx)
             except Exception as e:
@@ -87,7 +94,10 @@ class KiraParser:
                     transaction_id=tx['transaction_id'],
                     transaction_date=tx['transaction_date'],
                     amount=tx['amount'],
-                    payment_method=tx['payment_method']
+                    payment_method=tx['payment_method'],
+                    mdr=tx['mdr'],
+                    settlement_amount=tx['settlement_amount'],
+                    merchant=tx['merchant']
                 ).on_conflict_do_nothing(
                     index_elements=['transaction_id']
                 )
