@@ -1,4 +1,3 @@
-from src.core.browser import BrowserManager, create_page_with_kl_settings, wait_for_download
 from src.core.loader import (
     load_settings,
     load_accounts,
@@ -9,7 +8,6 @@ from src.core.loader import (
     PROJECT_ROOT
 )
 from src.core.logger import get_logger, setup_logger, get_kl_timestamp
-from src.core.session import SessionManager
 from src.core.exceptions import (
     ScraperError,
     LoginError,
@@ -19,11 +17,9 @@ from src.core.exceptions import (
 )
 from src.core.database import get_session, init_db
 from src.core.models import Job, KiraTransaction, PGTransaction
+from src.core.jobs import JobManager, job_manager
 
 __all__ = [
-    'BrowserManager',
-    'create_page_with_kl_settings',
-    'wait_for_download',
     'load_settings',
     'load_accounts',
     'get_service_account_path',
@@ -34,7 +30,6 @@ __all__ = [
     'get_logger',
     'setup_logger',
     'get_kl_timestamp',
-    'SessionManager',
     'ScraperError',
     'LoginError',
     'DownloadError',
@@ -45,5 +40,6 @@ __all__ = [
     'PGTransaction',
     'get_session',
     'init_db',
+    'JobManager',
+    'job_manager',
 ]
-

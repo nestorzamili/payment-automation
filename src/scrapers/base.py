@@ -6,10 +6,10 @@ from zoneinfo import ZoneInfo
 
 from playwright.async_api import Page
 
-from src.core.browser import BrowserManager, create_page_with_kl_settings
+from src.scrapers.browser import BrowserManager, create_page_with_kl_settings
 from src.core.loader import get_download_path, get_session_path
 from src.core.logger import get_logger
-from src.core.session import SessionManager
+from src.scrapers.session import SessionManager
 
 logger = get_logger(__name__)
 KL_TZ = ZoneInfo('Asia/Kuala_Lumpur')
