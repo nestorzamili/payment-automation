@@ -30,6 +30,10 @@ class InterceptHandler(logging.Handler):
 
 
 def setup_logger():
+    if hasattr(setup_logger, '_initialized'):
+        return logger
+    setup_logger._initialized = True
+    
     logger.remove()
     
     logger.add(
@@ -62,8 +66,5 @@ def setup_logger():
 
 
 def get_logger(name: str):
-    if not hasattr(get_logger, '_initialized'):
-        setup_logger()
-        get_logger._initialized = True
-    
+    setup_logger()
     return logger.bind(name=name)

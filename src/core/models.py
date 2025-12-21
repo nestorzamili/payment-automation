@@ -12,6 +12,7 @@ class Job(Base):
 
     job_id = Column(Integer, primary_key=True, autoincrement=True)
     job_type = Column(String(50), nullable=False)
+    platform = Column(String(20))  # 'kira', 'm1', 'axai', 'fiuu'
     account_label = Column(String(100))
     from_date = Column(String(10))
     to_date = Column(String(10))
@@ -41,6 +42,8 @@ class Job(Base):
             'updated_at': self.updated_at,
         }
         
+        if self.platform:
+            result['platform'] = self.platform
         if self.account_label:
             result['account_label'] = self.account_label
         if self.from_date:

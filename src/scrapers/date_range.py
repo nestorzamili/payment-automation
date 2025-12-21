@@ -5,7 +5,7 @@ from zoneinfo import ZoneInfo
 from sqlalchemy import func
 
 from src.core.database import get_session
-from src.core.models import KiraTransaction, PGTransaction
+from src.core.models import Job
 from src.core.logger import get_logger
 
 logger = get_logger(__name__)
@@ -16,38 +16,43 @@ DEFAULT_START_DATE = date(2025, 10, 1)
 
 class DateRangeService:
     
-    def get_kira_date_range(self) -> Tuple[str, str]:
-        last_date = self._get_last_transaction_date(KiraTransaction)
-        return self._calculate_range(last_date, "Kira")
+    def get_date_range(self, platform: str) -> Tuple[str, str]:
+        """Get date range for download based on last completed job."""
+        last_job = self._get_last_completed_download(platform)
+        
+        if last_job and last_job.to_date:
+            from_date = datetime.strptime(last_job.to_date, '%Y-%m-%d').date()
+            logger.info(f"{platform}: Last download to_date {from_date}")
+        else:
+            from_date = DEFAULT_START_DATE
+            logger.info(f"{platform}: No completed download, starting from {from_date}")
+        
+        return self._calculate_range(from_date, platform)
     
-    def get_pg_date_range(self) -> Tuple[str, str]:
-        last_date = self._get_last_transaction_date(PGTransaction)
-        return self._calculate_range(last_date, "PG")
-    
-    def _get_last_transaction_date(self, model) -> datetime | None:
+    def _get_last_completed_download(self, platform: str) -> Job | None:
+        """Get the most recent completed download job for a platform."""
         session = get_session()
         try:
-            result = session.query(func.max(model.transaction_date)).scalar()
-            if result:
-                return datetime.strptime(result[:10], '%Y-%m-%d')
-            return None
+            job = session.query(Job).filter(
+                Job.job_type.like('download:%'),
+                Job.platform == platform,
+                Job.status == 'completed'
+            ).order_by(Job.to_date.desc()).first()
+            return job
         finally:
             session.close()
     
-    def _calculate_range(self, last_date: datetime | None, source_name: str) -> Tuple[str, str]:
+    def _calculate_range(self, from_date: date, platform: str) -> Tuple[str, str]:
         today = datetime.now(KL_TZ).date()
         
-        if last_date is None:
-            from_date = DEFAULT_START_DATE
-            logger.info(f"{source_name}: No existing data, starting from {from_date}")
-        else:
-            from_date = last_date.date()
-            logger.info(f"{source_name}: Last transaction date {from_date}")
+        if from_date >= today:
+            logger.info(f"{platform}: Already up to date (from_date={from_date}, today={today})")
+            return from_date.strftime('%Y-%m-%d'), today.strftime('%Y-%m-%d')
         
         gap = (today - from_date).days
         if gap > MAX_RANGE_DAYS:
             to_date = from_date + timedelta(days=MAX_RANGE_DAYS)
-            logger.warning(f"{source_name}: Gap {gap} days, limiting to {MAX_RANGE_DAYS} days ({from_date} to {to_date})")
+            logger.warning(f"{platform}: Gap {gap} days, limiting to {MAX_RANGE_DAYS} days ({from_date} to {to_date})")
         else:
             to_date = today
         

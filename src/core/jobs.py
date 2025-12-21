@@ -24,6 +24,7 @@ class JobManager:
     def create_job(
         self, 
         job_type: str, 
+        platform: str = None,
         account_label: str = None,
         from_date: str = None,
         to_date: str = None
@@ -34,6 +35,7 @@ class JobManager:
         try:
             job = Job(
                 job_type=job_type,
+                platform=platform,
                 account_label=account_label,
                 from_date=from_date,
                 to_date=to_date,
