@@ -81,8 +81,26 @@ class SheetsClient:
         for _, row in df.iterrows():
             data.append(['' if pd.isna(val) else val for val in row.values])
         
-        if clear_first:
-            self.clear_sheet(sheet_name)
+        if clear_first and len(df.columns) > 0:
+            end_col = self._col_to_letter(len(df.columns))
+            self.clear_columns(sheet_name, 'A', end_col)
         
         self.write_data(sheet_name, data)
         logger.info(f"Successfully uploaded {len(df)} rows to {sheet_name}")
+    
+    def clear_columns(self, sheet_name: str, start_col: str, end_col: str):
+        try:
+            worksheet = self.spreadsheet.worksheet(sheet_name)
+            range_to_clear = f"{start_col}:{end_col}"
+            worksheet.batch_clear([range_to_clear])
+            logger.info(f"Cleared columns {range_to_clear} in {sheet_name}")
+        except Exception as e:
+            logger.error(f"Failed to clear columns in {sheet_name}: {e}")
+            raise
+    
+    def _col_to_letter(self, col: int) -> str:
+        result = ""
+        while col > 0:
+            col, remainder = divmod(col - 1, 26)
+            result = chr(65 + remainder) + result
+        return result

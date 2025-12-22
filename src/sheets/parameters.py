@@ -17,6 +17,7 @@ class ParameterLoader:
         
         self._settlement_rules: Optional[Dict[str, str]] = None
         self._fees: Optional[pd.DataFrame] = None
+        self._deposit_rules: Optional[pd.DataFrame] = None
         self._add_on_holidays: Optional[Set[str]] = None
         self._loaded = False
     
@@ -44,11 +45,16 @@ class ParameterLoader:
                 self._add_on_holidays = self._parse_add_on_holidays(sections['ADD_ON_HOLIDAYS'])
                 logger.info(f"Loaded {len(self._add_on_holidays)} add-on holidays")
             
+            if 'DEPOSIT_RULES' in sections:
+                self._deposit_rules = self._parse_deposit_rules(sections['DEPOSIT_RULES'])
+                logger.info(f"Loaded {len(self._deposit_rules)} deposit rules")
+            
             self._loaded = True
             
             return {
                 'settlement_rules': self._settlement_rules,
                 'fees': self._fees,
+                'deposit_rules': self._deposit_rules,
                 'add_on_holidays': self._add_on_holidays
             }
             
@@ -182,3 +188,48 @@ class ParameterLoader:
             return set()
         
         return self._add_on_holidays
+    
+    def _parse_deposit_rules(self, data: List[List[str]]) -> pd.DataFrame:
+        if not data:
+            return pd.DataFrame()
+        
+        header = data[0]
+        rows = data[1:]
+        df = pd.DataFrame(rows, columns=header)
+        
+        if 'Year' in df.columns:
+            df['Year'] = pd.to_numeric(df['Year'], errors='coerce')
+        if 'Month' in df.columns:
+            df['Month'] = pd.to_numeric(df['Month'], errors='coerce')
+        
+        for col in ['FPX', 'ewallet', 'FPXC', 'Withdrawal']:
+            if col in df.columns:
+                df[col] = df[col].astype(str).str.replace('%', '').str.strip()
+                df[col] = pd.to_numeric(df[col], errors='coerce')
+        
+        return df
+    
+    def get_deposit_fee(self, year: int, month: int, merchant: str, channel: str) -> float:
+        self._ensure_loaded()
+        
+        if self._deposit_rules is None or self._deposit_rules.empty:
+            logger.warning(f"No deposit rules loaded for {year}/{month}/{merchant}/{channel}")
+            return 0.0
+        
+        matching = self._deposit_rules[
+            (self._deposit_rules['Year'] == year) &
+            (self._deposit_rules['Month'] == month) &
+            (self._deposit_rules['Merchant'] == merchant)
+        ]
+        
+        if matching.empty:
+            logger.warning(f"No deposit rule for {year}/{month}/{merchant}/{channel}")
+            return 0.0
+        
+        row = matching.iloc[0]
+        channel_col = channel if channel in ['FPX', 'FPXC'] else 'ewallet'
+        
+        if channel_col in row:
+            return float(row[channel_col]) if pd.notna(row[channel_col]) else 0.0
+        
+        return 0.0
