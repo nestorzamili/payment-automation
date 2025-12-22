@@ -91,13 +91,13 @@ class SummaryService:
         
         df = pd.DataFrame(joined_data)
         
-        grouped = df.groupby(['pg_date', 'account_label', 'transaction_type']).agg({
+        grouped = df.groupby(['pg_date', 'account_label', 'channel']).agg({
             'kira_amount': 'sum',
             'kira_mdr': 'sum',
             'kira_settlement_amount': 'sum',
             'pg_amount': 'sum',
             'transaction_id': 'count',
-            'channel': 'first',
+            'transaction_type': 'first',
             'platform': 'first'
         }).reset_index()
         
