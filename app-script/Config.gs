@@ -1,0 +1,4 @@
+const CONFIG = {
+  BASE_URL: 'cloudflare-tunnel-url',
+  API_KEY: 'api-key',
+};

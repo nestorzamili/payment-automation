@@ -170,7 +170,7 @@ class SummaryService:
         fee_value = fee_config.get('fee_value', 0.0)
         
         if fee_type == 'percent':
-            return amount_pg * fee_value
+            return amount_pg * (fee_value / 100)
         elif fee_type == 'per_order':
             return tx_count * fee_value
         

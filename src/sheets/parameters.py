@@ -125,19 +125,19 @@ class ParameterLoader:
         if not self._loaded:
             self.load_all_parameters()
     
-    def get_settlement_rule(self, account_label: str, channel: str) -> str:
+    def get_settlement_rule(self, merchant: str, channel: str) -> str:
         self._ensure_loaded()
         
         if self._settlement_rules is None or self._settlement_rules.empty:
-            logger.warning(f"No settlement rules loaded, using T+1 for {account_label}/{channel}")
+            logger.warning(f"No settlement rules loaded, using T+1 for {merchant}/{channel}")
             return 'T+1'
         
         matching = self._settlement_rules[
-            self._settlement_rules['Account_Label'] == account_label
+            self._settlement_rules['Merchant'] == merchant
         ]
         
         if matching.empty:
-            logger.warning(f"No settlement rule for account {account_label}, using T+1")
+            logger.warning(f"No settlement rule for merchant {merchant}, using T+1")
             return 'T+1'
         
         channel_lower = channel.lower() if channel else ''
@@ -149,7 +149,7 @@ class ParameterLoader:
             if rule and str(rule).strip():
                 return str(rule).strip()
         
-        logger.warning(f"No settlement rule for {account_label}/{channel}, using T+1")
+        logger.warning(f"No settlement rule for {merchant}/{channel}, using T+1")
         return 'T+1'
     
     def get_fee_config(self, year: int, month: int, pg: str, payment_type: str) -> Dict[str, Any]:
