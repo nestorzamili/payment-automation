@@ -56,8 +56,8 @@ class SummaryService:
                 PGTransaction,
                 KiraTransaction.transaction_id == PGTransaction.transaction_id
             ).filter(
-                PGTransaction.transaction_date >= from_date,
-                PGTransaction.transaction_date <= to_date + ' 23:59:59'
+                KiraTransaction.transaction_date >= from_date,
+                KiraTransaction.transaction_date <= to_date + ' 23:59:59'
             ).all()
             
             joined_data = []
@@ -68,7 +68,7 @@ class SummaryService:
                     'kira_mdr': kira.mdr,
                     'kira_settlement_amount': kira.settlement_amount,
                     'kira_merchant': kira.merchant,
-                    'pg_date': pg.transaction_date[:10],
+                    'kira_date': kira.transaction_date[:10],
                     'pg_amount': pg.amount,
                     'account_label': pg.account_label,
                     'transaction_type': pg.transaction_type,
@@ -91,7 +91,7 @@ class SummaryService:
         
         df = pd.DataFrame(joined_data)
         
-        grouped = df.groupby(['pg_date', 'account_label', 'channel']).agg({
+        grouped = df.groupby(['kira_date', 'account_label', 'channel']).agg({
             'kira_amount': 'sum',
             'kira_mdr': 'sum',
             'kira_settlement_amount': 'sum',
@@ -106,7 +106,7 @@ class SummaryService:
         summary_rows = []
         
         for _, row in grouped.iterrows():
-            pg_date = row['pg_date']
+            kira_date = row['kira_date']
             account_label = row['account_label']
             transaction_type = row['transaction_type']
             channel = row['channel']
@@ -114,16 +114,16 @@ class SummaryService:
             settlement_rule = self.param_loader.get_settlement_rule(transaction_type)
             
             settlement_date = calculate_settlement_date(
-                pg_date,
+                kira_date,
                 settlement_rule,
                 public_holidays,
                 add_on_holidays
             )
             
-            pg_date_parsed = datetime.strptime(pg_date, '%Y-%m-%d')
+            kira_date_parsed = datetime.strptime(kira_date, '%Y-%m-%d')
             fee_config = self.param_loader.get_fee_config(
-                pg_date_parsed.year,
-                pg_date_parsed.month,
+                kira_date_parsed.year,
+                kira_date_parsed.month,
                 row['platform'],
                 channel
             )
@@ -146,7 +146,7 @@ class SummaryService:
                 'Kira Amount': round(kira_amount, 2),
                 'MDR': round(row['kira_mdr'] or 0, 2),
                 'KIRA Settlement Amount': round(row['kira_settlement_amount'] or 0, 2),
-                'PG Date': pg_date,
+                'PG Date': kira_date,
                 'Amount PG': round(row['pg_amount'], 2),
                 'Transaction Count': int(row['transaction_count']),
                 'Settlement Rule': settlement_rule,
