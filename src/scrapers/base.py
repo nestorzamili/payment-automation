@@ -153,6 +153,10 @@ class BaseScraper(ABC):
             
             logger.info(f"Download completed: {self.label} ({len(downloaded_files)} files)")
             return downloaded_files
+        except Exception as e:
+            error_msg = str(e).split('Call log:')[0].strip()
+            logger.error(f"Download failed: {self.label} - {error_msg}")
+            raise
         finally:
             try:
                 await context.close()

@@ -101,26 +101,61 @@ class M1Scraper(BaseScraper):
         formatted_from = from_dt.strftime('%m/%d/%Y')
         formatted_to = to_dt.strftime('%m/%d/%Y')
         
+        logger.info(f"Filling dates: {formatted_from} to {formatted_to}")
         await page.get_by_label("From Date").clear()
         await page.get_by_label("From Date").fill(formatted_from)
         
         await page.get_by_label("To Date").clear()
         await page.get_by_label("To Date").fill(formatted_to)
         
-        status_dropdown = page.get_by_role("combobox").first
-        await status_dropdown.dispatch_event('click')
-        await asyncio.sleep(0.5)
-        await page.get_by_role("option", name="SUCCESS").click()
+        logger.info("Selecting Transaction Status: SUCCESS")
+        # Find mat-form-field containing "Transaction Status" text and click its mat-select
+        await page.evaluate('''
+            const fields = Array.from(document.querySelectorAll("mat-form-field"));
+            const statusField = fields.find(f => f.innerText.includes("Transaction Status"));
+            if (statusField) {
+                const select = statusField.querySelector("mat-select");
+                if (select) select.click();
+            }
+        ''')
         await asyncio.sleep(0.5)
         
+        success_option = page.get_by_role("option", name="SUCCESS")
+        await success_option.wait_for(state='visible', timeout=5000)
+        await success_option.click()
+        await asyncio.sleep(0.5)
+        
+        logger.info("Clicking Search button")
         await page.get_by_role("button", name="search").click()
+        
+        # Wait for loading to complete
         await page.wait_for_load_state('networkidle')
-        await asyncio.sleep(1)
+        
+        # Wait for spinner/loading indicator to disappear if present
+        spinner = page.locator('.mat-progress-spinner, .loading, mat-spinner')
+        try:
+            await spinner.wait_for(state='hidden', timeout=30000)
+        except:
+            pass
+        
+        await asyncio.sleep(2)
         
         no_data_msg = page.locator('.message:has-text("There is no data")')
-        if await no_data_msg.count() > 0:
-            logger.info(f"No data found for {filename}")
-            return None
+        table_rows = page.locator('table tbody tr')
+        
+        # Wait longer for table data to appear
+        try:
+            await table_rows.first.wait_for(state='visible', timeout=15000)
+        except:
+            # Double check for no data message
+            if await no_data_msg.count() > 0:
+                logger.info(f"No data found for {filename}")
+                return None
+            # Maybe still loading, wait more
+            await asyncio.sleep(3)
+            if await table_rows.count() == 0:
+                logger.info(f"No data found for {filename}")
+                return None
         
         export_button = page.get_by_role("button", name="Export All", exact=True)
         

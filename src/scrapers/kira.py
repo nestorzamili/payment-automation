@@ -59,7 +59,7 @@ class KiraScraper(BaseScraper):
         logger.info("Clicking Search button")
         await page.get_by_role("button", name="Search").click()
         await page.wait_for_load_state('networkidle')
-        await asyncio.sleep(1)
+        await asyncio.sleep(2)
         
         logger.info("Clicking Export button")
         await page.get_by_role("button", name="Export").click()

@@ -120,8 +120,12 @@ class AxaiScraper(BaseScraper):
         return [file_path]
     
     async def download_files(self, page: Page, download_dir: Path, from_date: str, to_date: str) -> List[Path]:
+        logger.info(f"Downloading AXAI: {from_date} to {to_date}")
         download_dir.mkdir(parents=True, exist_ok=True)
         await self.navigate_to_payment_details(page)
+        logger.info("Selecting transaction status")
         await self.select_transaction_status(page)
+        logger.info(f"Filling date range: {from_date} to {to_date}")
         await self.fill_date_range(page, from_date, to_date)
+        logger.info("Searching and exporting")
         return await self.search_and_export(page, download_dir, from_date, to_date)

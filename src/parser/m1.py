@@ -9,7 +9,7 @@ from sqlalchemy.dialects.sqlite import insert
 from src.core.database import get_session
 from src.core.models import PGTransaction
 from src.core.logger import get_logger
-from src.parser.helper import get_parsed_files, record_parsed_file
+from src.parser.helper import get_parsed_files, record_parsed_file, normalize_channel
 
 logger = get_logger(__name__)
 
@@ -43,8 +43,9 @@ class M1Parser:
     def _extract_channel(self, filename: str) -> str:
         match = re.search(r'_ewallet_([a-z_]+)_\d{4}', filename)
         if match:
-            return match.group(1).replace('_', ' ').title()
-        return "Unknown"
+            raw_channel = match.group(1).replace('_', ' ').title()
+            return normalize_channel(raw_channel)
+        return "ewallet"
     
     def _parse_fpx(self, file_path: Path, account_label: str) -> List[dict]:
         df = pd.read_excel(file_path)
@@ -77,7 +78,7 @@ class M1Parser:
                     'transaction_id': str(row['merchantOrderNo']),
                     'transaction_date': self._parse_date(row['Date']),
                     'amount': float(row['Amount']),
-                    'transaction_type': 'EWALLET',
+                    'transaction_type': 'ewallet',
                     'channel': channel,
                     'account_label': account_label
                 }

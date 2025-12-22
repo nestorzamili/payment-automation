@@ -10,6 +10,25 @@ from src.core.logger import get_logger
 logger = get_logger(__name__)
 
 
+def normalize_channel(channel: str) -> str:
+    channel_lower = channel.lower().strip()
+    
+    if channel_lower in ['wallet', 'ewallet', 'e-wallet']:
+        return 'ewallet'
+    elif channel_lower in ['shopeepay', 'shopee pay', 'shopee']:
+        return 'Shopee'
+    elif channel_lower in ['touch n go', 'touchngo', 'tng', 'touch & go']:
+        return 'TNG'
+    elif channel_lower in ['boost']:
+        return 'Boost'
+    elif channel_lower in ['fpx']:
+        return 'FPX'
+    elif channel_lower in ['fpxc', 'fpx b2b']:
+        return 'FPXC'
+    
+    return channel
+
+
 def get_parsed_files(account_label: str = None, platform: str = None) -> Set[str]:
     session = get_session()
     parsed_files = set()

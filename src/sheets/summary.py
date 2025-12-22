@@ -91,7 +91,7 @@ class SummaryService:
         
         df = pd.DataFrame(joined_data)
         
-        grouped = df.groupby(['pg_date', 'account_label', 'kira_merchant', 'transaction_type']).agg({
+        grouped = df.groupby(['pg_date', 'account_label', 'transaction_type']).agg({
             'kira_amount': 'sum',
             'kira_mdr': 'sum',
             'kira_settlement_amount': 'sum',
@@ -108,10 +108,10 @@ class SummaryService:
         for _, row in grouped.iterrows():
             pg_date = row['pg_date']
             account_label = row['account_label']
-            merchant = row['kira_merchant']
-            channel = row['transaction_type']
+            transaction_type = row['transaction_type']
+            channel = row['channel']
             
-            settlement_rule = self.param_loader.get_settlement_rule(merchant, channel)
+            settlement_rule = self.param_loader.get_settlement_rule(transaction_type)
             
             settlement_date = calculate_settlement_date(
                 pg_date,
@@ -136,15 +136,16 @@ class SummaryService:
             
             settlement_amount = row['pg_amount'] - fees
             
-            kira_settlement = row['kira_settlement_amount'] or 0
-            daily_variance = kira_settlement - settlement_amount
+            kira_amount = row['kira_amount'] or 0
+            pg_amount = row['pg_amount'] or 0
+            daily_variance = kira_amount - pg_amount
             
             summary_rows.append({
                 'PG Merchant': account_label,
                 'Channel': channel,
-                'Kira Amount': round(row['kira_amount'], 2),
+                'Kira Amount': round(kira_amount, 2),
                 'MDR': round(row['kira_mdr'] or 0, 2),
-                'KIRA Settlement Amount': round(kira_settlement, 2),
+                'KIRA Settlement Amount': round(row['kira_settlement_amount'] or 0, 2),
                 'PG Date': pg_date,
                 'Amount PG': round(row['pg_amount'], 2),
                 'Transaction Count': int(row['transaction_count']),

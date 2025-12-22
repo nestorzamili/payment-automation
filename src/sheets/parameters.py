@@ -15,7 +15,7 @@ class ParameterLoader:
         self.settings = load_settings()
         self.sheet_name = self.settings['google_sheets']['sheets']['parameters']
         
-        self._settlement_rules: Optional[pd.DataFrame] = None
+        self._settlement_rules: Optional[Dict[str, str]] = None
         self._fees: Optional[pd.DataFrame] = None
         self._add_on_holidays: Optional[Set[str]] = None
         self._loaded = False
@@ -84,13 +84,19 @@ class ParameterLoader:
         
         return sections
     
-    def _parse_settlement_rules(self, data: List[List[str]]) -> pd.DataFrame:
+    def _parse_settlement_rules(self, data: List[List[str]]) -> Dict[str, str]:
+        rules = {}
         if not data:
-            return pd.DataFrame()
+            return rules
         
-        header = data[0]
-        rows = data[1:]
-        return pd.DataFrame(rows, columns=header)
+        for row in data:
+            if len(row) >= 2:
+                channel = row[0].strip()
+                rule = row[1].strip()
+                if channel and rule:
+                    rules[channel.lower()] = rule
+        
+        return rules
     
     def _parse_fees(self, data: List[List[str]]) -> pd.DataFrame:
         if not data:
@@ -125,31 +131,19 @@ class ParameterLoader:
         if not self._loaded:
             self.load_all_parameters()
     
-    def get_settlement_rule(self, merchant: str, channel: str) -> str:
+    def get_settlement_rule(self, channel: str) -> str:
         self._ensure_loaded()
         
-        if self._settlement_rules is None or self._settlement_rules.empty:
-            logger.warning(f"No settlement rules loaded, using T+1 for {merchant}/{channel}")
-            return 'T+1'
-        
-        matching = self._settlement_rules[
-            self._settlement_rules['Merchant'] == merchant
-        ]
-        
-        if matching.empty:
-            logger.warning(f"No settlement rule for merchant {merchant}, using T+1")
+        if not self._settlement_rules:
+            logger.warning(f"No settlement rules loaded, using T+1 for {channel}")
             return 'T+1'
         
         channel_lower = channel.lower() if channel else ''
-        columns_lower = {col.lower(): col for col in matching.columns}
         
-        if channel_lower in columns_lower:
-            actual_col = columns_lower[channel_lower]
-            rule = matching.iloc[0][actual_col]
-            if rule and str(rule).strip():
-                return str(rule).strip()
+        if channel_lower in self._settlement_rules:
+            return self._settlement_rules[channel_lower]
         
-        logger.warning(f"No settlement rule for {merchant}/{channel}, using T+1")
+        logger.warning(f"No settlement rule for {channel}, using T+1")
         return 'T+1'
     
     def get_fee_config(self, year: int, month: int, pg: str, payment_type: str) -> Dict[str, Any]:

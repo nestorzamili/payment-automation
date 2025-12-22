@@ -9,7 +9,7 @@ from sqlalchemy.dialects.sqlite import insert
 from src.core.database import get_session
 from src.core.models import PGTransaction
 from src.core.logger import get_logger
-from src.parser.helper import get_parsed_files, record_parsed_file
+from src.parser.helper import get_parsed_files, record_parsed_file, normalize_channel
 
 logger = get_logger(__name__)
 
@@ -34,7 +34,7 @@ class AxaiParser:
                     'transaction_id': str(row['Order Number']),
                     'transaction_date': self._parse_date(row['Payment Time']),
                     'amount': float(row['Payment Amount']),
-                    'transaction_type': 'FPX' if channel == 'FPX' else 'EWALLET',
+                    'transaction_type': 'FPX' if channel == 'FPX' else 'ewallet',
                     'channel': channel,
                     'account_label': account_label
                 }
@@ -48,8 +48,9 @@ class AxaiParser:
     def _extract_channel(self, value: str) -> str:
         match = re.search(r'\s+(\w+)\s*\(', str(value))
         if match:
-            return match.group(1)
-        return str(value)
+            raw_channel = match.group(1)
+            return normalize_channel(raw_channel)
+        return normalize_channel(str(value))
     
     def _parse_date(self, date_value) -> str:
         if isinstance(date_value, datetime):
