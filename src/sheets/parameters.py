@@ -233,3 +233,26 @@ class ParameterLoader:
             return float(row[channel_col]) if pd.notna(row[channel_col]) else 0.0
         
         return 0.0
+    
+    def get_withdrawal_rate(self, year: int, month: int, merchant: str) -> float:
+        self._ensure_loaded()
+        
+        if self._deposit_rules is None or self._deposit_rules.empty:
+            logger.warning(f"No deposit rules loaded for {year}/{month}/{merchant}")
+            return 0.0
+        
+        matching = self._deposit_rules[
+            (self._deposit_rules['Year'] == year) &
+            (self._deposit_rules['Month'] == month) &
+            (self._deposit_rules['Merchant'] == merchant)
+        ]
+        
+        if matching.empty:
+            logger.warning(f"No withdrawal rate for {year}/{month}/{merchant}")
+            return 0.0
+        
+        row = matching.iloc[0]
+        if 'Withdrawal' in row:
+            return float(row['Withdrawal']) / 100 if pd.notna(row['Withdrawal']) else 0.0
+        
+        return 0.0

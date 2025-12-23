@@ -214,13 +214,14 @@ class MerchantLedgerService:
                     if val is not None:
                         existing.settlement_charges = val
                     
-                    val = self._to_float(row.get('withdrawal_amount'))
-                    if val is not None:
-                        existing.withdrawal_amount = val
-                    
-                    val = self._to_float(row.get('withdrawal_charges'))
-                    if val is not None:
-                        existing.withdrawal_charges = val
+                    withdrawal_amount = self._to_float(row.get('withdrawal_amount'))
+                    if withdrawal_amount is not None:
+                        existing.withdrawal_amount = withdrawal_amount
+                        
+                        year = int(existing.transaction_date[:4])
+                        month = int(existing.transaction_date[5:7])
+                        rate = self.param_loader.get_withdrawal_rate(year, month, existing.merchant)
+                        existing.withdrawal_charges = withdrawal_amount * rate
                     
                     val = self._to_float(row.get('topup_payout_pool'))
                     if val is not None:

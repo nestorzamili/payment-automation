@@ -114,15 +114,22 @@ function updateMerchantLedger() {
   };
 
   try {
-    ledgerSheet.getRange('A5:Z100').clearContent();
-
     const response = UrlFetchApp.fetch(
       `${CONFIG.BASE_URL}/ledger/merchant/update`,
       options,
     );
+
+    const code = response.getResponseCode();
+    if (code >= 500) {
+      SpreadsheetApp.getUi().alert('Server error: ' + code);
+      return;
+    }
+
     const result = JSON.parse(response.getContentText());
 
     if (result.status === 'success' && result.data && result.data.data) {
+      ledgerSheet.getRange('A5:Z100').clearContent();
+
       const ledgerData = result.data.data;
       const rows = ledgerData.map((row) => [
         row.merchant_ledger_id,
