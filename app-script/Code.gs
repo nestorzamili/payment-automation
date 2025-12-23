@@ -1,7 +1,7 @@
 function onOpen() {
   SpreadsheetApp.getUi()
     .createMenu('Triggers')
-    .addItem('Generate Summary', 'showDatePrompt')
+    .addItem('Update Data', 'showDatePrompt')
     .addToUi();
 }
 
@@ -14,14 +14,14 @@ function showDatePrompt() {
   const toResponse = ui.prompt('Enter To Date (YYYY-MM-DD):');
   if (toResponse.getSelectedButton() !== ui.Button.OK) return;
 
-  const result = generateSummary(
+  const result = updateData(
     fromResponse.getResponseText(),
     toResponse.getResponseText(),
   );
   ui.alert(JSON.stringify(result, null, 2));
 }
 
-function generateSummary(fromDate, toDate) {
+function updateData(fromDate, toDate) {
   const options = {
     method: 'POST',
     contentType: 'application/json',
@@ -32,7 +32,7 @@ function generateSummary(fromDate, toDate) {
 
   try {
     const response = UrlFetchApp.fetch(
-      `${CONFIG.BASE_URL}/summary/generate`,
+      `${CONFIG.BASE_URL}/sheets/update`,
       options,
     );
     return JSON.parse(response.getContentText());

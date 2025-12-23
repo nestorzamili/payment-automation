@@ -1,6 +1,6 @@
 from flask import Flask
 
-from src.routes import health, jobs, download, parse, summary, deposit
+from src.routes import health, jobs, download, parse, summary, deposit, sheets
 
 
 PUBLIC_ENDPOINTS = ('health.health_check',)
@@ -13,4 +13,5 @@ def register_routes(app: Flask):
     app.register_blueprint(parse.bp)
     app.register_blueprint(summary.bp)
     app.register_blueprint(deposit.bp)
+    app.register_blueprint(sheets.bp)
 
