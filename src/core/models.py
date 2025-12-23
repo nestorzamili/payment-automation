@@ -113,3 +113,67 @@ class PGTransaction(Base):
             'channel': self.channel,
             'account_label': self.account_label
         }
+
+
+class MerchantLedger(Base):
+    __tablename__ = 'merchant_ledger'
+
+    merchant_ledger_id = Column(Integer, primary_key=True, autoincrement=True)
+    merchant = Column(String(100), nullable=False, index=True)
+    transaction_date = Column(String(10), nullable=False, index=True)
+    
+    fpx = Column(Float, default=0)
+    fee_fpx = Column(Float, default=0)
+    gross_fpx = Column(Float, default=0)
+    ewallet = Column(Float, default=0)
+    fee_ewallet = Column(Float, default=0)
+    gross_ewallet = Column(Float, default=0)
+    total_gross = Column(Float, default=0)
+    total_fee = Column(Float, default=0)
+    cum_fpx = Column(Float, default=0)
+    cum_ewallet = Column(Float, default=0)
+    cum_total = Column(Float, default=0)
+    
+    settlement_fund = Column(Float)
+    settlement_charges = Column(Float)
+    withdrawal_amount = Column(Float)
+    withdrawal_charges = Column(Float)
+    topup_payout_pool = Column(Float)
+    payout_pool_balance = Column(Float)
+    available_balance = Column(Float)
+    total_balance = Column(Float)
+    remarks = Column(Text)
+    
+    updated_at = Column(String(19), default=_now_kl, onupdate=_now_kl)
+
+    __table_args__ = (
+        {'sqlite_autoincrement': True},
+    )
+
+    def to_dict(self) -> dict:
+        return {
+            'merchant_ledger_id': self.merchant_ledger_id,
+            'merchant': self.merchant,
+            'transaction_date': self.transaction_date,
+            'fpx': self.fpx,
+            'fee_fpx': self.fee_fpx,
+            'gross_fpx': self.gross_fpx,
+            'ewallet': self.ewallet,
+            'fee_ewallet': self.fee_ewallet,
+            'gross_ewallet': self.gross_ewallet,
+            'total_gross': self.total_gross,
+            'total_fee': self.total_fee,
+            'cum_fpx': self.cum_fpx,
+            'cum_ewallet': self.cum_ewallet,
+            'cum_total': self.cum_total,
+            'settlement_fund': self.settlement_fund,
+            'settlement_charges': self.settlement_charges,
+            'withdrawal_amount': self.withdrawal_amount,
+            'withdrawal_charges': self.withdrawal_charges,
+            'topup_payout_pool': self.topup_payout_pool,
+            'payout_pool_balance': self.payout_pool_balance,
+            'available_balance': self.available_balance,
+            'total_balance': self.total_balance,
+            'remarks': self.remarks,
+            'updated_at': self.updated_at
+        }
