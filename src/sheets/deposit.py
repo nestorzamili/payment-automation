@@ -53,8 +53,8 @@ class DepositService:
                 PGTransaction,
                 KiraTransaction.transaction_id == PGTransaction.transaction_id
             ).filter(
-                PGTransaction.transaction_date >= from_date,
-                PGTransaction.transaction_date <= to_date + ' 23:59:59'
+                KiraTransaction.transaction_date >= from_date,
+                KiraTransaction.transaction_date <= to_date + ' 23:59:59'
             ).all()
             
             joined_data = []
