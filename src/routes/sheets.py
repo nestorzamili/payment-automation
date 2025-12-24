@@ -1,9 +1,13 @@
-from flask import Blueprint, request
+from flask import Blueprint
 
+from src.sheets.transactions import get_all_joined_transactions
 from src.sheets.summary import SummaryService
 from src.sheets.deposit import DepositService
+from src.sheets.client import SheetsClient
+from src.sheets.parameters import ParameterLoader
+from src.utils.holiday import load_malaysia_holidays
 from src.core.logger import get_logger
-from src.utils.response import jsend_success, jsend_fail, jsend_error
+from src.utils.response import jsend_success, jsend_error
 
 logger = get_logger(__name__)
 
@@ -13,83 +17,59 @@ bp = Blueprint('sheets', __name__, url_prefix='/sheets')
 @bp.route('/update', methods=['POST'])
 def update_sheets():
     try:
-        data = request.get_json() or {}
+        logger.info("Updating sheets")
         
-        from_date = data.get('from_date')
-        to_date = data.get('to_date')
+        joined_data = get_all_joined_transactions()
         
-        if not from_date or not to_date:
-            return jsend_fail({'message': 'from_date and to_date are required'}, 400)
+        if not joined_data:
+            return jsend_success({
+                'message': 'No data found',
+                'summary': '0 rows',
+                'deposit': '0 rows'
+            })
         
-        logger.info(f"Updating sheets: {from_date} to {to_date}")
+        sheets_client = SheetsClient()
+        param_loader = ParameterLoader(sheets_client)
+        param_loader.load_all_parameters()
         
-        results = {
-            'summary': None,
-            'deposit': None
-        }
-        errors = []
+        add_on_holidays = param_loader.get_add_on_holidays()
+        public_holidays = load_malaysia_holidays()
+        
+        summary_rows = 0
+        deposit_rows = 0
         
         try:
-            summary_service = SummaryService()
-            summary_df = summary_service.generate_summary(from_date, to_date)
+            summary_service = SummaryService(sheets_client, param_loader)
+            summary_df = summary_service.generate_summary(
+                joined_data, 
+                public_holidays, 
+                add_on_holidays
+            )
             
-            if summary_df.empty:
-                results['summary'] = {'status': 'skipped', 'message': 'No data found'}
-            else:
-                summary_result = summary_service.upload_to_sheet(summary_df)
-                if summary_result['success']:
-                    results['summary'] = {
-                        'status': 'success',
-                        'rows': summary_result['rows_uploaded'],
-                        'sheet': summary_result['sheet_name']
-                    }
-                else:
-                    errors.append({'type': 'summary', 'error': summary_result.get('error')})
-                    results['summary'] = {'status': 'error', 'error': summary_result.get('error')}
+            if not summary_df.empty:
+                summary_service.upload_to_sheet(summary_df)
+                summary_rows = len(summary_df)
         except Exception as e:
             logger.error(f"Error generating summary: {e}")
-            errors.append({'type': 'summary', 'error': str(e)})
-            results['summary'] = {'status': 'error', 'error': str(e)}
         
         try:
-            deposit_service = DepositService()
-            deposit_df = deposit_service.generate_deposit(from_date, to_date)
+            deposit_service = DepositService(sheets_client, param_loader)
+            deposit_df = deposit_service.generate_deposit(
+                joined_data,
+                public_holidays,
+                add_on_holidays
+            )
             
-            if deposit_df.empty:
-                results['deposit'] = {'status': 'skipped', 'message': 'No data found'}
-            else:
-                deposit_result = deposit_service.upload_to_sheet(deposit_df)
-                if deposit_result['success']:
-                    results['deposit'] = {
-                        'status': 'success',
-                        'rows': deposit_result['rows_uploaded'],
-                        'sheet': deposit_result['sheet_name']
-                    }
-                else:
-                    errors.append({'type': 'deposit', 'error': deposit_result.get('error')})
-                    results['deposit'] = {'status': 'error', 'error': deposit_result.get('error')}
+            if not deposit_df.empty:
+                deposit_service.upload_to_sheet(deposit_df)
+                deposit_rows = len(deposit_df)
         except Exception as e:
             logger.error(f"Error generating deposit: {e}")
-            errors.append({'type': 'deposit', 'error': str(e)})
-            results['deposit'] = {'status': 'error', 'error': str(e)}
-        
-        if errors:
-            return jsend_error(
-                message='Update completed with errors',
-                http_code=500,
-                data=results
-            )
-        
-        if (results['summary'] and results['summary'].get('status') == 'skipped' and
-            results['deposit'] and results['deposit'].get('status') == 'skipped'):
-            return jsend_fail({'message': 'No data found for the specified date range'}, 404)
         
         return jsend_success({
-            'message': 'Data updated successfully',
-            'from_date': from_date,
-            'to_date': to_date,
-            'summary': results['summary'],
-            'deposit': results['deposit']
+            'message': f'Updated {summary_rows} rows to Summary, {deposit_rows} rows to Deposit',
+            'summary': f'{summary_rows} rows',
+            'deposit': f'{deposit_rows} rows'
         })
             
     except Exception as e:

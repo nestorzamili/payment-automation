@@ -14,22 +14,25 @@ logger = get_logger(__name__)
 
 class SummaryService:
     
-    def __init__(self, sheets_client: SheetsClient = None):
+    def __init__(self, sheets_client: SheetsClient = None, param_loader: ParameterLoader = None):
         self.sheets_client = sheets_client or SheetsClient()
-        self.param_loader = ParameterLoader(self.sheets_client)
+        self.param_loader = param_loader or ParameterLoader(self.sheets_client)
     
-    def generate_summary(self, from_date: str, to_date: str) -> pd.DataFrame:
-        logger.info(f"Generating summary for {from_date} to {to_date}")
-        
-        self.param_loader.load_all_parameters()
-        add_on_holidays = self.param_loader.get_add_on_holidays()
-        public_holidays = load_malaysia_holidays()
-        
-        joined_data = self._get_joined_transactions(from_date, to_date)
+    def generate_summary(
+        self, 
+        joined_data: List[Dict[str, Any]], 
+        public_holidays: Set[str] = None,
+        add_on_holidays: Set[str] = None
+    ) -> pd.DataFrame:
+        logger.info(f"Generating summary from {len(joined_data)} transactions")
         
         if not joined_data:
-            logger.warning("No transaction data found for the date range")
             return pd.DataFrame()
+        
+        if public_holidays is None or add_on_holidays is None:
+            self.param_loader.load_all_parameters()
+            add_on_holidays = self.param_loader.get_add_on_holidays()
+            public_holidays = load_malaysia_holidays()
         
         summary_rows = self._calculate_summary_rows(
             joined_data, 

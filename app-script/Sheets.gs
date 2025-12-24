@@ -1,25 +1,8 @@
-function showDatePrompt() {
-  const ui = SpreadsheetApp.getUi();
-
-  const fromResponse = ui.prompt('Enter From Date (YYYY-MM-DD):');
-  if (fromResponse.getSelectedButton() !== ui.Button.OK) return;
-
-  const toResponse = ui.prompt('Enter To Date (YYYY-MM-DD):');
-  if (toResponse.getSelectedButton() !== ui.Button.OK) return;
-
-  const result = updateData(
-    fromResponse.getResponseText(),
-    toResponse.getResponseText(),
-  );
-  ui.alert(JSON.stringify(result, null, 2));
-}
-
-function updateData(fromDate, toDate) {
+function updateSheets() {
   const options = {
     method: 'POST',
     contentType: 'application/json',
     headers: { 'x-api-key': CONFIG.API_KEY },
-    payload: JSON.stringify({ from_date: fromDate, to_date: toDate }),
     muteHttpExceptions: true,
   };
 
@@ -28,8 +11,15 @@ function updateData(fromDate, toDate) {
       `${CONFIG.BASE_URL}/sheets/update`,
       options,
     );
-    return JSON.parse(response.getContentText());
+    
+    const result = JSON.parse(response.getContentText());
+    
+    if (result.status === 'success' && result.data) {
+      SpreadsheetApp.getUi().alert(result.data.message);
+    } else {
+      SpreadsheetApp.getUi().alert('Error: ' + (result.message || 'Unknown error'));
+    }
   } catch (error) {
-    return { status: 'error', message: error.message };
+    SpreadsheetApp.getUi().alert('Error: ' + error.message);
   }
 }

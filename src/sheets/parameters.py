@@ -22,8 +22,6 @@ class ParameterLoader:
         self._loaded = False
     
     def load_all_parameters(self) -> Dict[str, Any]:
-        logger.info(f"Loading parameters from sheet: {self.sheet_name}")
-        
         try:
             data = self.client.read_data(self.sheet_name)
             
@@ -35,21 +33,20 @@ class ParameterLoader:
             
             if 'SETTLEMENT_RULES' in sections:
                 self._settlement_rules = self._parse_settlement_rules(sections['SETTLEMENT_RULES'])
-                logger.info(f"Loaded {len(self._settlement_rules)} settlement rules")
             
             if 'FEES' in sections:
                 self._fees = self._parse_fees(sections['FEES'])
-                logger.info(f"Loaded {len(self._fees)} fee configurations")
             
             if 'ADD_ON_HOLIDAYS' in sections:
                 self._add_on_holidays = self._parse_add_on_holidays(sections['ADD_ON_HOLIDAYS'])
-                logger.info(f"Loaded {len(self._add_on_holidays)} add-on holidays")
             
             if 'DEPOSIT_RULES' in sections:
                 self._deposit_rules = self._parse_deposit_rules(sections['DEPOSIT_RULES'])
-                logger.info(f"Loaded {len(self._deposit_rules)} deposit rules")
             
             self._loaded = True
+            rules_count = len(self._settlement_rules) if self._settlement_rules is not None else 0
+            fees_count = len(self._fees) if self._fees is not None else 0
+            logger.info(f"Loaded parameters: {rules_count} rules, {fees_count} fees")
             
             return {
                 'settlement_rules': self._settlement_rules,

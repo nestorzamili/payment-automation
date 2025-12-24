@@ -1,6 +1,6 @@
 function onOpen() {
   SpreadsheetApp.getUi()
     .createMenu('Triggers')
-    .addItem('Update Data', 'showDatePrompt')
+    .addItem('Update Sheets', 'updateSheets')
     .addToUi();
 }

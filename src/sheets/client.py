@@ -29,7 +29,6 @@ class SheetsClient:
         
         self.client = gspread.authorize(credentials)
         self.spreadsheet = self.client.open_by_key(self.spreadsheet_id)
-        logger.info(f"Sheets client initialized for spreadsheet: {self.spreadsheet_id}")
     
     def clear_sheet(self, sheet_name: str):
         try:
@@ -44,7 +43,6 @@ class SheetsClient:
         try:
             worksheet = self.spreadsheet.worksheet(sheet_name)
             worksheet.update(start_cell, data)
-            logger.info(f"Wrote {len(data)} rows to {sheet_name}")
         except Exception as e:
             logger.error(f"Failed to write to {sheet_name}: {e}")
             raise
@@ -65,14 +63,12 @@ class SheetsClient:
                 values = worksheet.get(range_spec)
             else:
                 values = worksheet.get_all_values()
-            logger.info(f"Read {len(values)} rows from {sheet_name}")
             return values
         except Exception as e:
             logger.error(f"Failed to read from {sheet_name}: {e}")
             raise
     
     def upload_dataframe(self, sheet_name: str, df: pd.DataFrame, include_header: bool = True, clear_first: bool = False):
-        logger.info(f"Uploading DataFrame to {sheet_name}: {len(df)} rows, {len(df.columns)} columns")
         
         data = []
         if include_header:
@@ -86,14 +82,13 @@ class SheetsClient:
             self.clear_columns(sheet_name, 'A', end_col)
         
         self.write_data(sheet_name, data)
-        logger.info(f"Successfully uploaded {len(df)} rows to {sheet_name}")
+        logger.info(f"Uploaded {len(df)} rows to {sheet_name}")
     
     def clear_columns(self, sheet_name: str, start_col: str, end_col: str):
         try:
             worksheet = self.spreadsheet.worksheet(sheet_name)
             range_to_clear = f"{start_col}:{end_col}"
             worksheet.batch_clear([range_to_clear])
-            logger.info(f"Cleared columns {range_to_clear} in {sheet_name}")
         except Exception as e:
             logger.error(f"Failed to clear columns in {sheet_name}: {e}")
             raise
