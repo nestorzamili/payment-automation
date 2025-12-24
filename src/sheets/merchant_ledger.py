@@ -293,7 +293,13 @@ class MerchantLedgerService:
         prev_available = 0
         
         for row in rows:
-            if row.withdrawal_amount is not None or row.topup_payout_pool is not None:
+            has_payout_activity = (
+                row.withdrawal_amount is not None 
+                or row.topup_payout_pool is not None
+                or prev_payout_pool != 0
+            )
+            
+            if has_payout_activity:
                 row.payout_pool_balance = self._r(
                     prev_payout_pool
                     - (row.withdrawal_amount or 0)
@@ -303,7 +309,13 @@ class MerchantLedgerService:
             else:
                 row.payout_pool_balance = None
             
-            if row.settlement_fund is not None:
+            has_available_activity = (
+                row.settlement_fund is not None
+                or row.available_settlement_amount_total
+                or prev_available != 0
+            )
+            
+            if has_available_activity:
                 row.available_balance = self._r(
                     prev_available
                     + (row.available_settlement_amount_total or 0)
@@ -313,8 +325,10 @@ class MerchantLedgerService:
             else:
                 row.available_balance = None
             
-            if row.payout_pool_balance is not None and row.available_balance is not None:
-                row.total_balance = self._r(row.payout_pool_balance + row.available_balance)
+            if row.payout_pool_balance is not None or row.available_balance is not None:
+                row.total_balance = self._r(
+                    (row.payout_pool_balance or 0) + (row.available_balance or 0)
+                )
             else:
                 row.total_balance = None
             

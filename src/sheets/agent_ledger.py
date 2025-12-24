@@ -304,7 +304,13 @@ class AgentLedgerService:
         prev_balance = 0
         
         for row in rows:
-            if row.withdrawal_amount is not None or row.available_settlement_total:
+            has_activity = (
+                row.withdrawal_amount is not None 
+                or row.available_settlement_total 
+                or prev_balance != 0
+            )
+            
+            if has_activity:
                 row.balance = self._r(
                     prev_balance
                     + (row.available_settlement_total or 0)
