@@ -25,7 +25,6 @@ def update_merchant_ledger():
         service = MerchantLedgerService()
         
         if manual_data:
-            logger.info(f"Saving {len(manual_data)} manual data rows by ID")
             service.save_manual_data(manual_data)
         
         logger.info(f"Loading ledger for: {merchant} {year}-{month:02d}")

@@ -102,11 +102,11 @@ function readMerchantManualData(sheet) {
 
     manualData.push({
       id: id,
-      settlement_fund: row[13] || null,
-      settlement_charges: row[14] || null,
-      withdrawal_amount: row[15] || null,
-      topup_payout_pool: row[17] || null,
-      remarks: row[22] || null,
+      settlement_fund: row[13] !== '' ? row[13] : 'CLEAR',
+      settlement_charges: row[14] !== '' ? row[14] : 'CLEAR',
+      withdrawal_amount: row[15] !== '' ? row[15] : 'CLEAR',
+      topup_payout_pool: row[17] !== '' ? row[17] : 'CLEAR',
+      remarks: row[22] !== '' ? row[22] : 'CLEAR',
     });
   }
 

@@ -17,7 +17,6 @@ class MerchantLedgerService:
         self.param_loader = ParameterLoader(self.sheets_client)
     
     def _r(self, value):
-        """Round to 2 decimal places, preserving None."""
         return round(value, 2) if value is not None else None
     
     def init_from_deposit(self, deposit_rows: List[Dict[str, Any]]) -> int:
@@ -60,7 +59,6 @@ class MerchantLedgerService:
         return result
     
     def _build_settlement_map(self, deposit_rows: List[Dict[str, Any]]) -> Dict:
-        """Pre-compute settlement amounts for O(1) lookup. Key: (merchant, settlement_date, channel_type)"""
         settlement_map = {}
         
         for row in deposit_rows:
@@ -85,7 +83,6 @@ class MerchantLedgerService:
         try:
             sorted_keys = sorted(aggregated.keys(), key=lambda x: (x[0], x[1]))
             
-            # Batch fetch existing records
             existing_keys = [(k[0], k[1]) for k in sorted_keys]
             existing_records = {}
             
@@ -107,7 +104,6 @@ class MerchantLedgerService:
                 total_gross = self._r(data['gross_fpx'] + data['gross_ewallet'])
                 total_fee = self._r(data['fee_fpx'] + data['fee_ewallet'])
                 
-                # O(1) lookup from pre-computed map
                 available_fpx = self._r(settlement_map.get((merchant, transaction_date, 'fpx'), 0))
                 available_ewallet = self._r(settlement_map.get((merchant, transaction_date, 'ewallet'), 0))
                 available_total = self._r((available_fpx or 0) + (available_ewallet or 0))
@@ -199,7 +195,6 @@ class MerchantLedgerService:
         count = 0
         
         try:
-            # Validate and collect IDs
             valid_ids = []
             for row in manual_data:
                 ledger_id = row.get('id')
@@ -209,7 +204,6 @@ class MerchantLedgerService:
             if not valid_ids:
                 return 0
             
-            # Batch fetch all records
             records = session.query(MerchantLedger).filter(
                 MerchantLedger.merchant_ledger_id.in_(valid_ids)
             ).all()
@@ -217,10 +211,8 @@ class MerchantLedgerService:
             records_by_id = {r.merchant_ledger_id: r for r in records}
             manual_by_id = {int(row['id']): row for row in manual_data if row.get('id')}
             
-            # Track which merchants need cascade recalculation
             merchants_to_recalc = set()
             
-            # First pass: update manual fields
             for ledger_id in valid_ids:
                 existing = records_by_id.get(ledger_id)
                 row = manual_by_id.get(ledger_id)
@@ -228,38 +220,56 @@ class MerchantLedgerService:
                 if not existing or not row:
                     continue
                 
-                val = self._to_float(row.get('settlement_fund'))
-                if val is not None:
-                    existing.settlement_fund = val
+                val = row.get('settlement_fund')
+                if val == 'CLEAR':
+                    existing.settlement_fund = None
+                    merchants_to_recalc.add(existing.merchant)
+                elif val is not None:
+                    existing.settlement_fund = self._to_float(val)
                     merchants_to_recalc.add(existing.merchant)
                 
-                val = self._to_float(row.get('settlement_charges'))
-                if val is not None:
-                    existing.settlement_charges = val
+                val = row.get('settlement_charges')
+                if val == 'CLEAR':
+                    existing.settlement_charges = None
+                    merchants_to_recalc.add(existing.merchant)
+                elif val is not None:
+                    existing.settlement_charges = self._to_float(val)
                     merchants_to_recalc.add(existing.merchant)
                 
-                withdrawal_amount = self._to_float(row.get('withdrawal_amount'))
-                if withdrawal_amount is not None:
-                    existing.withdrawal_amount = withdrawal_amount
-                    
-                    year = int(existing.transaction_date[:4])
-                    month = int(existing.transaction_date[5:7])
-                    rate = self.param_loader.get_withdrawal_rate(year, month, existing.merchant)
-                    existing.withdrawal_charges = self._r(withdrawal_amount * rate)
+                val = row.get('withdrawal_amount')
+                if val == 'CLEAR':
+                    existing.withdrawal_amount = None
+                    existing.withdrawal_charges = None
                     merchants_to_recalc.add(existing.merchant)
+                elif val is not None:
+                    withdrawal_amount = self._to_float(val)
+                    if withdrawal_amount is not None:
+                        existing.withdrawal_amount = withdrawal_amount
+                        
+                        year = int(existing.transaction_date[:4])
+                        month = int(existing.transaction_date[5:7])
+                        if not self.param_loader._loaded:
+                            self.param_loader.load_all_parameters()
+                        rate = self.param_loader.get_withdrawal_rate(year, month, existing.merchant)
+                        existing.withdrawal_charges = self._r(withdrawal_amount * rate)
+                        merchants_to_recalc.add(existing.merchant)
                 
-                val = self._to_float(row.get('topup_payout_pool'))
-                if val is not None:
-                    existing.topup_payout_pool = val
+                val = row.get('topup_payout_pool')
+                if val == 'CLEAR':
+                    existing.topup_payout_pool = None
+                    merchants_to_recalc.add(existing.merchant)
+                elif val is not None:
+                    existing.topup_payout_pool = self._to_float(val)
                     merchants_to_recalc.add(existing.merchant)
                 
                 remarks = row.get('remarks')
-                if remarks and isinstance(remarks, str) and remarks.strip():
+                if remarks == 'CLEAR':
+                    existing.remarks = None
+                elif remarks and isinstance(remarks, str) and remarks.strip():
                     existing.remarks = remarks.strip()
                 
                 count += 1
             
-            # Second pass: recalculate balances cascade for affected merchants
             for merchant in merchants_to_recalc:
                 self._recalculate_balances(session, merchant)
             
@@ -275,7 +285,6 @@ class MerchantLedgerService:
             session.close()
     
     def _recalculate_balances(self, session, merchant: str):
-        """Recalculate all balances for a merchant in date order (cascade fix)."""
         rows = session.query(MerchantLedger).filter(
             MerchantLedger.merchant == merchant
         ).order_by(MerchantLedger.transaction_date).all()
