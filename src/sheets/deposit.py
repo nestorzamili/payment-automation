@@ -38,6 +38,7 @@ class DepositService:
         )
         
         self._init_merchant_ledger(deposit_rows)
+        self._init_agent_ledger(deposit_rows)
         
         df = pd.DataFrame(deposit_rows)
         
@@ -52,6 +53,15 @@ class DepositService:
             logger.info(f"Initialized {count} merchant ledger rows")
         except Exception as e:
             logger.error(f"Failed to init merchant ledger: {e}")
+    
+    def _init_agent_ledger(self, deposit_rows: List[Dict[str, Any]]):
+        try:
+            from src.sheets.agent_ledger import AgentLedgerService
+            ledger_service = AgentLedgerService(self.sheets_client)
+            count = ledger_service.init_from_deposit(deposit_rows)
+            logger.info(f"Initialized {count} agent ledger rows")
+        except Exception as e:
+            logger.error(f"Failed to init agent ledger: {e}")
     
     def _get_joined_transactions(self, from_date: str, to_date: str) -> List[Dict[str, Any]]:
         session = get_session()

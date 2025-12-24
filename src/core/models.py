@@ -180,3 +180,60 @@ class MerchantLedger(Base):
             'remarks': self.remarks,
             'updated_at': self.updated_at
         }
+
+
+class AgentLedger(Base):
+    __tablename__ = 'agent_ledger'
+    
+    agent_ledger_id = Column(Integer, primary_key=True, autoincrement=True)
+    merchant = Column(String(100), nullable=False, index=True)
+    transaction_date = Column(String(10), nullable=False, index=True)
+    
+    commission_rate_fpx = Column(Float)
+    fpx = Column(Float)
+    kira_amount_fpx = Column(Float, default=0)
+    
+    commission_rate_ewallet = Column(Float)
+    ewallet = Column(Float)
+    kira_amount_ewallet = Column(Float, default=0)
+    
+    gross_amount = Column(Float)
+    
+    settlement_kira_fpx = Column(Float, default=0)
+    settlement_kira_ewallet = Column(Float, default=0)
+    
+    available_settlement_fpx = Column(Float)
+    available_settlement_ewallet = Column(Float)
+    available_settlement_total = Column(Float)
+    
+    withdrawal_amount = Column(Float)
+    balance = Column(Float)
+    
+    updated_at = Column(String(30), default=_now_kl, onupdate=_now_kl)
+    
+    __table_args__ = (
+        {'sqlite_autoincrement': True},
+    )
+
+    def _round(self, value):
+        return round(value, 2) if value is not None else None
+
+    def to_dict(self) -> dict:
+        return {
+            'agent_ledger_id': self.agent_ledger_id,
+            'merchant': self.merchant,
+            'transaction_date': self.transaction_date,
+            'commission_rate_fpx': self._round(self.commission_rate_fpx),
+            'fpx': self._round(self.fpx),
+            'kira_amount_fpx': self._round(self.kira_amount_fpx),
+            'commission_rate_ewallet': self._round(self.commission_rate_ewallet),
+            'ewallet': self._round(self.ewallet),
+            'kira_amount_ewallet': self._round(self.kira_amount_ewallet),
+            'gross_amount': self._round(self.gross_amount),
+            'available_settlement_fpx': self._round(self.available_settlement_fpx),
+            'available_settlement_ewallet': self._round(self.available_settlement_ewallet),
+            'available_settlement_total': self._round(self.available_settlement_total),
+            'withdrawal_amount': self._round(self.withdrawal_amount),
+            'balance': self._round(self.balance),
+            'updated_at': self.updated_at
+        }
