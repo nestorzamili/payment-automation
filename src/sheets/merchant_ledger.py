@@ -58,11 +58,11 @@ class MerchantLedgerService:
         
         return result
     
-    def _calc_cumulative_by_settlement(
+    def _calc_available_settlement(
         self, 
         deposit_rows: List[Dict[str, Any]], 
         merchant: str, 
-        as_of_date: str,
+        settlement_date: str,
         include_channels: set = None,
         exclude_channels: set = None
     ) -> float:
@@ -77,11 +77,14 @@ class MerchantLedgerService:
             if exclude_channels and channel in exclude_channels:
                 continue
             
-            settlement_date = row['Settlement Date']
-            if settlement_date and settlement_date <= as_of_date:
+            row_settlement_date = row['Settlement Date']
+            if row_settlement_date and row_settlement_date == settlement_date:
                 total += row['Gross Amount (Deposit)']
         
         return total
+    
+    def _r(self, value):
+        return round(value, 2) if value is not None else 0
     
     def _upsert_ledger_rows(self, aggregated: Dict, deposit_rows: List[Dict[str, Any]]) -> int:
         session = get_session()
@@ -95,18 +98,18 @@ class MerchantLedgerService:
                 merchant = data['merchant']
                 transaction_date = data['transaction_date']
                 
-                total_gross = data['gross_fpx'] + data['gross_ewallet']
-                total_fee = data['fee_fpx'] + data['fee_ewallet']
+                total_gross = self._r(data['gross_fpx'] + data['gross_ewallet'])
+                total_fee = self._r(data['fee_fpx'] + data['fee_ewallet'])
                 
-                cum_fpx = self._calc_cumulative_by_settlement(
+                available_fpx = self._r(self._calc_available_settlement(
                     deposit_rows, merchant, transaction_date, 
                     include_channels={'FPX', 'FPXC'}
-                )
-                cum_ewallet = self._calc_cumulative_by_settlement(
+                ))
+                available_ewallet = self._r(self._calc_available_settlement(
                     deposit_rows, merchant, transaction_date, 
                     exclude_channels={'FPX', 'FPXC'}
-                )
-                cum_total = cum_fpx + cum_ewallet
+                ))
+                available_total = self._r(available_fpx + available_ewallet)
                 
                 existing = session.query(MerchantLedger).filter(
                     and_(
@@ -116,32 +119,32 @@ class MerchantLedgerService:
                 ).first()
                 
                 if existing:
-                    existing.fpx = data['fpx']
-                    existing.fee_fpx = data['fee_fpx']
-                    existing.gross_fpx = data['gross_fpx']
-                    existing.ewallet = data['ewallet']
-                    existing.fee_ewallet = data['fee_ewallet']
-                    existing.gross_ewallet = data['gross_ewallet']
+                    existing.fpx = self._r(data['fpx'])
+                    existing.fee_fpx = self._r(data['fee_fpx'])
+                    existing.gross_fpx = self._r(data['gross_fpx'])
+                    existing.ewallet = self._r(data['ewallet'])
+                    existing.fee_ewallet = self._r(data['fee_ewallet'])
+                    existing.gross_ewallet = self._r(data['gross_ewallet'])
                     existing.total_gross = total_gross
                     existing.total_fee = total_fee
-                    existing.cum_fpx = cum_fpx
-                    existing.cum_ewallet = cum_ewallet
-                    existing.cum_total = cum_total
+                    existing.available_settlement_amount_fpx = available_fpx
+                    existing.available_settlement_amount_ewallet = available_ewallet
+                    existing.available_settlement_amount_total = available_total
                 else:
                     new_record = MerchantLedger(
                         merchant=merchant,
                         transaction_date=transaction_date,
-                        fpx=data['fpx'],
-                        fee_fpx=data['fee_fpx'],
-                        gross_fpx=data['gross_fpx'],
-                        ewallet=data['ewallet'],
-                        fee_ewallet=data['fee_ewallet'],
-                        gross_ewallet=data['gross_ewallet'],
+                        fpx=self._r(data['fpx']),
+                        fee_fpx=self._r(data['fee_fpx']),
+                        gross_fpx=self._r(data['gross_fpx']),
+                        ewallet=self._r(data['ewallet']),
+                        fee_ewallet=self._r(data['fee_ewallet']),
+                        gross_ewallet=self._r(data['gross_ewallet']),
                         total_gross=total_gross,
                         total_fee=total_fee,
-                        cum_fpx=cum_fpx,
-                        cum_ewallet=cum_ewallet,
-                        cum_total=cum_total
+                        available_settlement_amount_fpx=available_fpx,
+                        available_settlement_amount_ewallet=available_ewallet,
+                        available_settlement_amount_total=available_total
                     )
                     session.add(new_record)
                 
@@ -206,6 +209,7 @@ class MerchantLedgerService:
                 ).first()
                 
                 if existing:
+                    # Update manual input fields
                     val = self._to_float(row.get('settlement_fund'))
                     if val is not None:
                         existing.settlement_fund = val
@@ -227,21 +231,44 @@ class MerchantLedgerService:
                     if val is not None:
                         existing.topup_payout_pool = val
                     
-                    val = self._to_float(row.get('payout_pool_balance'))
-                    if val is not None:
-                        existing.payout_pool_balance = val
-                    
-                    val = self._to_float(row.get('available_balance'))
-                    if val is not None:
-                        existing.available_balance = val
-                    
-                    val = self._to_float(row.get('total_balance'))
-                    if val is not None:
-                        existing.total_balance = val
-                    
                     remarks = row.get('remarks')
                     if remarks and isinstance(remarks, str) and remarks.strip():
                         existing.remarks = remarks.strip()
+                    
+                    prev_row = session.query(MerchantLedger).filter(
+                        and_(
+                            MerchantLedger.merchant == existing.merchant,
+                            MerchantLedger.transaction_date < existing.transaction_date
+                        )
+                    ).order_by(MerchantLedger.transaction_date.desc()).first()
+                    
+                    prev_payout_pool = prev_row.payout_pool_balance if prev_row and prev_row.payout_pool_balance else 0
+                    prev_available = prev_row.available_balance if prev_row and prev_row.available_balance else 0
+                    
+                    if existing.withdrawal_amount is not None or existing.topup_payout_pool is not None:
+                        existing.payout_pool_balance = self._r(
+                            prev_payout_pool
+                            - (existing.withdrawal_amount or 0)
+                            - (existing.withdrawal_charges or 0)
+                            + (existing.topup_payout_pool or 0)
+                        )
+                    else:
+                        existing.payout_pool_balance = None
+                    
+                    if existing.settlement_fund is not None:
+                        existing.available_balance = self._r(
+                            prev_available
+                            + (existing.available_settlement_amount_total or 0)
+                            - (existing.settlement_fund or 0)
+                            - (existing.settlement_charges or 0)
+                        )
+                    else:
+                        existing.available_balance = None
+                    
+                    if existing.payout_pool_balance is not None and existing.available_balance is not None:
+                        existing.total_balance = self._r(existing.payout_pool_balance + existing.available_balance)
+                    else:
+                        existing.total_balance = None
                     
                     count += 1
             
@@ -268,10 +295,11 @@ class MerchantLedgerService:
         
         try:
             columns = [
-                'transaction_date', 'fpx', 'fee_fpx', 'gross_fpx',
+                'merchant_ledger_id', 'transaction_date', 
+                'fpx', 'fee_fpx', 'gross_fpx',
                 'ewallet', 'fee_ewallet', 'gross_ewallet',
                 'total_gross', 'total_fee',
-                'cum_fpx', 'cum_ewallet', 'cum_total',
+                'available_settlement_amount_fpx', 'available_settlement_amount_ewallet', 'available_settlement_amount_total',
                 'settlement_fund', 'settlement_charges',
                 'withdrawal_amount', 'withdrawal_charges',
                 'topup_payout_pool', 'payout_pool_balance',

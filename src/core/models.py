@@ -130,9 +130,9 @@ class MerchantLedger(Base):
     gross_ewallet = Column(Float, default=0)
     total_gross = Column(Float, default=0)
     total_fee = Column(Float, default=0)
-    cum_fpx = Column(Float, default=0)
-    cum_ewallet = Column(Float, default=0)
-    cum_total = Column(Float, default=0)
+    available_settlement_amount_fpx = Column(Float, default=0)
+    available_settlement_amount_ewallet = Column(Float, default=0)
+    available_settlement_amount_total = Column(Float, default=0)
     
     settlement_fund = Column(Float)
     settlement_charges = Column(Float)
@@ -150,30 +150,33 @@ class MerchantLedger(Base):
         {'sqlite_autoincrement': True},
     )
 
+    def _round(self, value):
+        return round(value, 2) if value is not None else None
+
     def to_dict(self) -> dict:
         return {
             'merchant_ledger_id': self.merchant_ledger_id,
             'merchant': self.merchant,
             'transaction_date': self.transaction_date,
-            'fpx': self.fpx,
-            'fee_fpx': self.fee_fpx,
-            'gross_fpx': self.gross_fpx,
-            'ewallet': self.ewallet,
-            'fee_ewallet': self.fee_ewallet,
-            'gross_ewallet': self.gross_ewallet,
-            'total_gross': self.total_gross,
-            'total_fee': self.total_fee,
-            'cum_fpx': self.cum_fpx,
-            'cum_ewallet': self.cum_ewallet,
-            'cum_total': self.cum_total,
-            'settlement_fund': self.settlement_fund,
-            'settlement_charges': self.settlement_charges,
-            'withdrawal_amount': self.withdrawal_amount,
-            'withdrawal_charges': self.withdrawal_charges,
-            'topup_payout_pool': self.topup_payout_pool,
-            'payout_pool_balance': self.payout_pool_balance,
-            'available_balance': self.available_balance,
-            'total_balance': self.total_balance,
+            'fpx': self._round(self.fpx),
+            'fee_fpx': self._round(self.fee_fpx),
+            'gross_fpx': self._round(self.gross_fpx),
+            'ewallet': self._round(self.ewallet),
+            'fee_ewallet': self._round(self.fee_ewallet),
+            'gross_ewallet': self._round(self.gross_ewallet),
+            'total_gross': self._round(self.total_gross),
+            'total_fee': self._round(self.total_fee),
+            'available_settlement_amount_fpx': self._round(self.available_settlement_amount_fpx),
+            'available_settlement_amount_ewallet': self._round(self.available_settlement_amount_ewallet),
+            'available_settlement_amount_total': self._round(self.available_settlement_amount_total),
+            'settlement_fund': self._round(self.settlement_fund),
+            'settlement_charges': self._round(self.settlement_charges),
+            'withdrawal_amount': self._round(self.withdrawal_amount),
+            'withdrawal_charges': self._round(self.withdrawal_charges),
+            'topup_payout_pool': self._round(self.topup_payout_pool),
+            'payout_pool_balance': self._round(self.payout_pool_balance),
+            'available_balance': self._round(self.available_balance),
+            'total_balance': self._round(self.total_balance),
             'remarks': self.remarks,
             'updated_at': self.updated_at
         }
