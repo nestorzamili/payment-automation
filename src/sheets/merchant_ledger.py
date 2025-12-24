@@ -1,15 +1,11 @@
-import pandas as pd
 from typing import List, Dict, Any
-from datetime import datetime
-
 from sqlalchemy import and_
 
 from src.core.database import get_session
-from src.core.models import MerchantLedger, KiraTransaction, PGTransaction
+from src.core.models import MerchantLedger
 from src.core.logger import get_logger
 from src.sheets.client import SheetsClient
 from src.sheets.parameters import ParameterLoader
-from src.utils.holiday import load_malaysia_holidays, calculate_settlement_date
 
 logger = get_logger(__name__)
 
@@ -20,12 +16,17 @@ class MerchantLedgerService:
         self.sheets_client = sheets_client or SheetsClient()
         self.param_loader = ParameterLoader(self.sheets_client)
     
+    def _r(self, value):
+        """Round to 2 decimal places, preserving None."""
+        return round(value, 2) if value is not None else None
+    
     def init_from_deposit(self, deposit_rows: List[Dict[str, Any]]) -> int:
         if not deposit_rows:
             return 0
         
         aggregated = self._aggregate_deposit_data(deposit_rows)
-        return self._upsert_ledger_rows(aggregated, deposit_rows)
+        settlement_map = self._build_settlement_map(deposit_rows)
+        return self._upsert_ledger_rows(aggregated, settlement_map)
     
     def _aggregate_deposit_data(self, deposit_rows: List[Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
         result = {}
@@ -58,40 +59,45 @@ class MerchantLedgerService:
         
         return result
     
-    def _calc_available_settlement(
-        self, 
-        deposit_rows: List[Dict[str, Any]], 
-        merchant: str, 
-        settlement_date: str,
-        include_channels: set = None,
-        exclude_channels: set = None
-    ) -> float:
-        total = 0.0
-        for row in deposit_rows:
-            if row['Merchant'] != merchant:
-                continue
-            
-            channel = row['Channel'].upper()
-            if include_channels and channel not in include_channels:
-                continue
-            if exclude_channels and channel in exclude_channels:
-                continue
-            
-            row_settlement_date = row['Settlement Date']
-            if row_settlement_date and row_settlement_date == settlement_date:
-                total += row['Gross Amount (Deposit)']
+    def _build_settlement_map(self, deposit_rows: List[Dict[str, Any]]) -> Dict:
+        """Pre-compute settlement amounts for O(1) lookup. Key: (merchant, settlement_date, channel_type)"""
+        settlement_map = {}
         
-        return total
+        for row in deposit_rows:
+            merchant = row['Merchant']
+            settlement_date = row['Settlement Date']
+            channel = row['Channel'].upper()
+            gross = row['Gross Amount (Deposit)']
+            
+            channel_type = 'fpx' if channel in ('FPX', 'FPXC') else 'ewallet'
+            key = (merchant, settlement_date, channel_type)
+            
+            if key not in settlement_map:
+                settlement_map[key] = 0
+            settlement_map[key] += gross
+        
+        return settlement_map
     
-    def _r(self, value):
-        return round(value, 2) if value is not None else 0
-    
-    def _upsert_ledger_rows(self, aggregated: Dict, deposit_rows: List[Dict[str, Any]]) -> int:
+    def _upsert_ledger_rows(self, aggregated: Dict, settlement_map: Dict) -> int:
         session = get_session()
         count = 0
         
         try:
             sorted_keys = sorted(aggregated.keys(), key=lambda x: (x[0], x[1]))
+            
+            # Batch fetch existing records
+            existing_keys = [(k[0], k[1]) for k in sorted_keys]
+            existing_records = {}
+            
+            for merchant, date in existing_keys:
+                record = session.query(MerchantLedger).filter(
+                    and_(
+                        MerchantLedger.merchant == merchant,
+                        MerchantLedger.transaction_date == date
+                    )
+                ).first()
+                if record:
+                    existing_records[(merchant, date)] = record
             
             for key in sorted_keys:
                 data = aggregated[key]
@@ -101,22 +107,12 @@ class MerchantLedgerService:
                 total_gross = self._r(data['gross_fpx'] + data['gross_ewallet'])
                 total_fee = self._r(data['fee_fpx'] + data['fee_ewallet'])
                 
-                available_fpx = self._r(self._calc_available_settlement(
-                    deposit_rows, merchant, transaction_date, 
-                    include_channels={'FPX', 'FPXC'}
-                ))
-                available_ewallet = self._r(self._calc_available_settlement(
-                    deposit_rows, merchant, transaction_date, 
-                    exclude_channels={'FPX', 'FPXC'}
-                ))
-                available_total = self._r(available_fpx + available_ewallet)
+                # O(1) lookup from pre-computed map
+                available_fpx = self._r(settlement_map.get((merchant, transaction_date, 'fpx'), 0))
+                available_ewallet = self._r(settlement_map.get((merchant, transaction_date, 'ewallet'), 0))
+                available_total = self._r((available_fpx or 0) + (available_ewallet or 0))
                 
-                existing = session.query(MerchantLedger).filter(
-                    and_(
-                        MerchantLedger.merchant == merchant,
-                        MerchantLedger.transaction_date == transaction_date
-                    )
-                ).first()
+                existing = existing_records.get((merchant, transaction_date))
                 
                 if existing:
                     existing.fpx = self._r(data['fpx'])
@@ -149,6 +145,10 @@ class MerchantLedgerService:
                     session.add(new_record)
                 
                 count += 1
+            
+            affected_merchants = set(data['merchant'] for data in aggregated.values())
+            for merchant in affected_merchants:
+                self._recalculate_balances(session, merchant)
             
             session.commit()
             logger.info(f"Upserted {count} merchant ledger rows")
@@ -199,78 +199,69 @@ class MerchantLedgerService:
         count = 0
         
         try:
+            # Validate and collect IDs
+            valid_ids = []
             for row in manual_data:
                 ledger_id = row.get('id')
-                if not ledger_id:
+                if ledger_id and isinstance(ledger_id, (int, float)):
+                    valid_ids.append(int(ledger_id))
+            
+            if not valid_ids:
+                return 0
+            
+            # Batch fetch all records
+            records = session.query(MerchantLedger).filter(
+                MerchantLedger.merchant_ledger_id.in_(valid_ids)
+            ).all()
+            
+            records_by_id = {r.merchant_ledger_id: r for r in records}
+            manual_by_id = {int(row['id']): row for row in manual_data if row.get('id')}
+            
+            # Track which merchants need cascade recalculation
+            merchants_to_recalc = set()
+            
+            # First pass: update manual fields
+            for ledger_id in valid_ids:
+                existing = records_by_id.get(ledger_id)
+                row = manual_by_id.get(ledger_id)
+                
+                if not existing or not row:
                     continue
                 
-                existing = session.query(MerchantLedger).filter(
-                    MerchantLedger.merchant_ledger_id == ledger_id
-                ).first()
+                val = self._to_float(row.get('settlement_fund'))
+                if val is not None:
+                    existing.settlement_fund = val
+                    merchants_to_recalc.add(existing.merchant)
                 
-                if existing:
-                    # Update manual input fields
-                    val = self._to_float(row.get('settlement_fund'))
-                    if val is not None:
-                        existing.settlement_fund = val
+                val = self._to_float(row.get('settlement_charges'))
+                if val is not None:
+                    existing.settlement_charges = val
+                    merchants_to_recalc.add(existing.merchant)
+                
+                withdrawal_amount = self._to_float(row.get('withdrawal_amount'))
+                if withdrawal_amount is not None:
+                    existing.withdrawal_amount = withdrawal_amount
                     
-                    val = self._to_float(row.get('settlement_charges'))
-                    if val is not None:
-                        existing.settlement_charges = val
-                    
-                    withdrawal_amount = self._to_float(row.get('withdrawal_amount'))
-                    if withdrawal_amount is not None:
-                        existing.withdrawal_amount = withdrawal_amount
-                        
-                        year = int(existing.transaction_date[:4])
-                        month = int(existing.transaction_date[5:7])
-                        rate = self.param_loader.get_withdrawal_rate(year, month, existing.merchant)
-                        existing.withdrawal_charges = withdrawal_amount * rate
-                    
-                    val = self._to_float(row.get('topup_payout_pool'))
-                    if val is not None:
-                        existing.topup_payout_pool = val
-                    
-                    remarks = row.get('remarks')
-                    if remarks and isinstance(remarks, str) and remarks.strip():
-                        existing.remarks = remarks.strip()
-                    
-                    prev_row = session.query(MerchantLedger).filter(
-                        and_(
-                            MerchantLedger.merchant == existing.merchant,
-                            MerchantLedger.transaction_date < existing.transaction_date
-                        )
-                    ).order_by(MerchantLedger.transaction_date.desc()).first()
-                    
-                    prev_payout_pool = prev_row.payout_pool_balance if prev_row and prev_row.payout_pool_balance else 0
-                    prev_available = prev_row.available_balance if prev_row and prev_row.available_balance else 0
-                    
-                    if existing.withdrawal_amount is not None or existing.topup_payout_pool is not None:
-                        existing.payout_pool_balance = self._r(
-                            prev_payout_pool
-                            - (existing.withdrawal_amount or 0)
-                            - (existing.withdrawal_charges or 0)
-                            + (existing.topup_payout_pool or 0)
-                        )
-                    else:
-                        existing.payout_pool_balance = None
-                    
-                    if existing.settlement_fund is not None:
-                        existing.available_balance = self._r(
-                            prev_available
-                            + (existing.available_settlement_amount_total or 0)
-                            - (existing.settlement_fund or 0)
-                            - (existing.settlement_charges or 0)
-                        )
-                    else:
-                        existing.available_balance = None
-                    
-                    if existing.payout_pool_balance is not None and existing.available_balance is not None:
-                        existing.total_balance = self._r(existing.payout_pool_balance + existing.available_balance)
-                    else:
-                        existing.total_balance = None
-                    
-                    count += 1
+                    year = int(existing.transaction_date[:4])
+                    month = int(existing.transaction_date[5:7])
+                    rate = self.param_loader.get_withdrawal_rate(year, month, existing.merchant)
+                    existing.withdrawal_charges = self._r(withdrawal_amount * rate)
+                    merchants_to_recalc.add(existing.merchant)
+                
+                val = self._to_float(row.get('topup_payout_pool'))
+                if val is not None:
+                    existing.topup_payout_pool = val
+                    merchants_to_recalc.add(existing.merchant)
+                
+                remarks = row.get('remarks')
+                if remarks and isinstance(remarks, str) and remarks.strip():
+                    existing.remarks = remarks.strip()
+                
+                count += 1
+            
+            # Second pass: recalculate balances cascade for affected merchants
+            for merchant in merchants_to_recalc:
+                self._recalculate_balances(session, merchant)
             
             session.commit()
             logger.info(f"Updated {count} manual data rows by ID")
@@ -282,6 +273,44 @@ class MerchantLedgerService:
             raise
         finally:
             session.close()
+    
+    def _recalculate_balances(self, session, merchant: str):
+        """Recalculate all balances for a merchant in date order (cascade fix)."""
+        rows = session.query(MerchantLedger).filter(
+            MerchantLedger.merchant == merchant
+        ).order_by(MerchantLedger.transaction_date).all()
+        
+        prev_payout_pool = 0
+        prev_available = 0
+        
+        for row in rows:
+            if row.withdrawal_amount is not None or row.topup_payout_pool is not None:
+                row.payout_pool_balance = self._r(
+                    prev_payout_pool
+                    - (row.withdrawal_amount or 0)
+                    - (row.withdrawal_charges or 0)
+                    + (row.topup_payout_pool or 0)
+                )
+            else:
+                row.payout_pool_balance = None
+            
+            if row.settlement_fund is not None:
+                row.available_balance = self._r(
+                    prev_available
+                    + (row.available_settlement_amount_total or 0)
+                    - (row.settlement_fund or 0)
+                    - (row.settlement_charges or 0)
+                )
+            else:
+                row.available_balance = None
+            
+            if row.payout_pool_balance is not None and row.available_balance is not None:
+                row.total_balance = self._r(row.payout_pool_balance + row.available_balance)
+            else:
+                row.total_balance = None
+            
+            prev_payout_pool = row.payout_pool_balance if row.payout_pool_balance is not None else prev_payout_pool
+            prev_available = row.available_balance if row.available_balance is not None else prev_available
     
     def upload_to_sheet(self, data: List[Dict[str, Any]], sheet_name: str = None) -> Dict[str, Any]:
         from src.core.loader import load_settings
