@@ -52,7 +52,7 @@ def setup_logger():
     logger.add(
         log_file,
         format="{time:YYYY-MM-DD HH:mm:ss} | {level} | {message}",
-        level="DEBUG",
+        level="INFO",
         encoding="utf-8"
     )
     
