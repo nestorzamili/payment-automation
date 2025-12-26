@@ -1,8 +1,7 @@
-import gspread
+from gspread.auth import authorize
 from google.oauth2.service_account import Credentials
 import pandas as pd
 from typing import List, Any
-from pathlib import Path
 
 from src.core.logger import get_logger
 from src.core.loader import get_service_account_path, get_spreadsheet_id, load_settings
@@ -27,7 +26,7 @@ class SheetsClient:
             scopes=SCOPES
         )
         
-        self.client = gspread.authorize(credentials)
+        self.client = authorize(credentials)
         self.spreadsheet = self.client.open_by_key(self.spreadsheet_id)
     
     def clear_sheet(self, sheet_name: str):

@@ -3,7 +3,7 @@ from datetime import datetime
 from typing import List
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import Column, String, Float, DateTime, Text, Integer
+from sqlalchemy import Column, String, Float, Text, Integer
 
 from src.core.database import Base
 
