@@ -30,7 +30,7 @@ def update_deposit():
         
         add_on_holidays = param_loader.get_add_on_holidays()
         
-        service = DepositService(sheets_client, add_on_holidays)
+        service = DepositService(sheets_client, add_on_holidays, param_loader)
         
         if fee_data:
             logger.info(f"Saving {len(fee_data)} deposit fee inputs")

@@ -7,6 +7,7 @@ from src.core.models import DepositFee
 from src.core.logger import get_logger
 from src.sheets.client import SheetsClient
 from src.sheets.transaction import TransactionService
+from src.sheets.parameters import ParameterLoader
 
 logger = get_logger(__name__)
 
@@ -16,11 +17,13 @@ class DepositService:
     def __init__(
         self, 
         sheets_client: Optional[SheetsClient] = None, 
-        add_on_holidays: Optional[Set[str]] = None
+        add_on_holidays: Optional[Set[str]] = None,
+        param_loader: Optional[ParameterLoader] = None
     ):
         self.sheets_client = sheets_client or SheetsClient()
         self.add_on_holidays = add_on_holidays or set()
-        self.tx_service = TransactionService(self.add_on_holidays)
+        self.param_loader = param_loader
+        self.tx_service = TransactionService(self.add_on_holidays, self.param_loader)
     
     def generate_from_joined_data(self, joined_data: List[Dict[str, Any]]) -> int:
         if not joined_data:
