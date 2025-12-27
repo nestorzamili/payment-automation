@@ -9,6 +9,7 @@ from src.core.logger import get_logger
 from src.parser.m1 import M1Parser
 from src.parser.axai import AxaiParser
 from src.parser.kira import KiraParser
+from src.parser.fiuu import FiuuParser
 from src.utils import jsend_success
 
 bp = Blueprint('parse', __name__)
@@ -32,7 +33,7 @@ def run_parse_job(run_id: str):
     accounts = load_accounts()
     pg_accounts = [a for a in accounts if a['platform'] in ('m1', 'axai', 'fiuu')]
     
-    parsers = {'m1': M1Parser, 'axai': AxaiParser}
+    parsers = {'m1': M1Parser, 'axai': AxaiParser, 'fiuu': FiuuParser}
     
     for account in pg_accounts:
         label = account['label']
@@ -51,22 +52,6 @@ def run_parse_job(run_id: str):
             logger.info(f"{label}: parsed {result['total_transactions']} transactions")
         except Exception as e:
             logger.error(f"{label} parse error: {e}")
-    
-    try:
-        from src.sheets.transaction import TransactionService
-        from src.sheets.parameters import ParameterLoader
-        from src.sheets.client import SheetsClient
-        
-        sheets_client = SheetsClient()
-        param_loader = ParameterLoader(sheets_client)
-        param_loader.load_all_parameters()
-        add_on_holidays = param_loader.get_add_on_holidays()
-        
-        service = TransactionService(add_on_holidays)
-        count = service.aggregate_transactions()
-        logger.info(f"Aggregated {count} transactions")
-    except Exception as e:
-        logger.error(f"Aggregation error: {e}")
     
     _parse_running = False
     logger.info(f"Parse job completed (run_id: {run_id})")

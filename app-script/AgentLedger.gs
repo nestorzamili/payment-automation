@@ -1,9 +1,9 @@
-function updateAgentBalance() {
+function updateAgentLedger() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const sheet = ss.getSheetByName(CONFIG.AGENT_LEDGER);
 
   if (!sheet) {
-    SpreadsheetApp.getUi().alert('Agent Balance sheet not found');
+    SpreadsheetApp.getUi().alert('Agent Ledger sheet not found');
     return;
   }
 
@@ -53,16 +53,14 @@ function updateAgentBalance() {
     const result = JSON.parse(response.getContentText());
 
     if (result.status === 'success' && result.data && result.data.data) {
-      sheet.getRange('A5:N100').clearContent();
+      sheet.getRange('A5:M50').clearContent();
 
       const data = result.data.data;
       const rows = data.map((row) => [
-        row.agent_balance_id,
+        row.id,
         row.transaction_date,
-        row.kira_amount_fpx ?? '',
         row.commission_rate_fpx ?? '',
         row.fpx_commission ?? '',
-        row.kira_amount_ewallet ?? '',
         row.commission_rate_ewallet ?? '',
         row.ewallet_commission ?? '',
         row.gross_amount ?? '',
@@ -71,10 +69,11 @@ function updateAgentBalance() {
         row.available_total ?? '',
         row.withdrawal_amount ?? '',
         row.balance ?? '',
+        row.updated_at ?? '',
       ]);
 
       if (rows.length > 0) {
-        sheet.getRange(5, 1, rows.length, 14).setValues(rows);
+        sheet.getRange(5, 1, rows.length, 13).setValues(rows);
       }
     }
   } catch (error) {
@@ -83,7 +82,7 @@ function updateAgentBalance() {
 }
 
 function readAgentManualData(sheet) {
-  const data = sheet.getRange('A5:N100').getValues();
+  const data = sheet.getRange('A5:M50').getValues();
   const manualData = [];
 
   for (let i = 0; i < data.length; i++) {
@@ -92,10 +91,10 @@ function readAgentManualData(sheet) {
     if (!id) continue;
 
     manualData.push({
-      agent_balance_id: id,
-      commission_rate_fpx: row[3] !== '' ? row[3] : 'CLEAR',
-      commission_rate_ewallet: row[6] !== '' ? row[6] : 'CLEAR',
-      withdrawal_amount: row[12] !== '' ? row[12] : 'CLEAR',
+      id: id,
+      commission_rate_fpx: row[2] !== '' ? row[2] : 'CLEAR',
+      commission_rate_ewallet: row[4] !== '' ? row[4] : 'CLEAR',
+      withdrawal_amount: row[10] !== '' ? row[10] : 'CLEAR',
     });
   }
 

@@ -61,6 +61,8 @@ function updateKiraPG() {
       if (rows.length > 0) {
         sheet.getRange(4, 1, rows.length, 16).setValues(rows);
       }
+
+      setupMerchantDropdowns();
     }
   } catch (error) {
     SpreadsheetApp.getUi().alert('Error: ' + error.message);

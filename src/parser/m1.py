@@ -57,7 +57,6 @@ class M1Parser:
                     'transaction_id': str(row['merchantOrderNo']),
                     'transaction_date': self._parse_date(row['createdDate']),
                     'amount': float(row['transactionAmount']),
-                    'transaction_type': 'FPX',
                     'channel': 'FPX',
                     'account_label': account_label
                 }
@@ -78,7 +77,6 @@ class M1Parser:
                     'transaction_id': str(row['merchantOrderNo']),
                     'transaction_date': self._parse_date(row['Date']),
                     'amount': float(row['Amount']),
-                    'transaction_type': 'ewallet',
                     'channel': channel,
                     'account_label': account_label
                 }
@@ -132,7 +130,6 @@ class M1Parser:
                     transaction_date=tx['transaction_date'],
                     amount=tx['amount'],
                     platform='m1',
-                    transaction_type=tx['transaction_type'],
                     channel=tx['channel'],
                     account_label=tx['account_label']
                 ).on_conflict_do_nothing(
@@ -176,10 +173,8 @@ class M1Parser:
                     result['files_processed'] += 1
                     result['total_transactions'] += saved
                     
-                    tx_type = transactions[0]['transaction_type']
                     channel = transactions[0]['channel']
-                    key = f"{tx_type}:{channel}"
-                    result['by_type'][key] = result['by_type'].get(key, 0) + saved
+                    result['by_type'][channel] = result['by_type'].get(channel, 0) + saved
                     
                     complete_parse_job(job_id, saved)
                 else:

@@ -1,9 +1,9 @@
-function updateMerchantBalance() {
+function updateMerchantLedger() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const sheet = ss.getSheetByName(CONFIG.MERCHANT_LEDGER);
 
   if (!sheet) {
-    SpreadsheetApp.getUi().alert('Merchant Balance sheet not found');
+    SpreadsheetApp.getUi().alert('Merchant Ledger sheet not found');
     return;
   }
 
@@ -53,11 +53,11 @@ function updateMerchantBalance() {
     const result = JSON.parse(response.getContentText());
 
     if (result.status === 'success' && result.data && result.data.data) {
-      sheet.getRange('A5:V100').clearContent();
+      sheet.getRange('A5:X50').clearContent();
 
       const data = result.data.data;
       const rows = data.map((row) => [
-        row.merchant_balance_id,
+        row.id,
         row.transaction_date,
         row.fpx_amount ?? '',
         row.fpx_fee ?? '',
@@ -73,16 +73,18 @@ function updateMerchantBalance() {
         row.settlement_fund ?? '',
         row.settlement_charges ?? '',
         row.withdrawal_amount ?? '',
+        row.withdrawal_rate ?? '',
         row.withdrawal_charges ?? '',
         row.topup_payout_pool ?? '',
         row.payout_pool_balance ?? '',
         row.available_balance ?? '',
         row.total_balance ?? '',
+        row.updated_at ?? '',
         row.remarks ?? '',
       ]);
 
       if (rows.length > 0) {
-        sheet.getRange(5, 1, rows.length, 22).setValues(rows);
+        sheet.getRange(5, 1, rows.length, 24).setValues(rows);
       }
     }
   } catch (error) {
@@ -91,7 +93,7 @@ function updateMerchantBalance() {
 }
 
 function readMerchantManualData(sheet) {
-  const data = sheet.getRange('A5:V100').getValues();
+  const data = sheet.getRange('A5:X50').getValues();
   const manualData = [];
 
   for (let i = 0; i < data.length; i++) {
@@ -100,12 +102,13 @@ function readMerchantManualData(sheet) {
     if (!id) continue;
 
     manualData.push({
-      merchant_balance_id: id,
+      id: id,
       settlement_fund: row[13] !== '' ? row[13] : 'CLEAR',
       settlement_charges: row[14] !== '' ? row[14] : 'CLEAR',
       withdrawal_amount: row[15] !== '' ? row[15] : 'CLEAR',
-      topup_payout_pool: row[17] !== '' ? row[17] : 'CLEAR',
-      remarks: row[21] !== '' ? row[21] : 'CLEAR',
+      withdrawal_rate: row[16] !== '' ? row[16] : 'CLEAR',
+      topup_payout_pool: row[18] !== '' ? row[18] : 'CLEAR',
+      remarks: row[23] !== '' ? row[23] : 'CLEAR',
     });
   }
 

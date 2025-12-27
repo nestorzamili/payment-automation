@@ -1,9 +1,7 @@
-import json
 from datetime import datetime
-from typing import List
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import Column, String, Float, Text, Integer
+from sqlalchemy import Column, String, Float, Text, Integer, Index
 
 from src.core.database import Base
 
@@ -19,16 +17,16 @@ class Job(Base):
     job_id = Column(Integer, primary_key=True, autoincrement=True)
     run_id = Column(String(36), index=True)
     job_type = Column(String(50), nullable=False)
-    platform = Column(String(20))
-    account_label = Column(String(100))
+    platform = Column(String(20), nullable=False)
+    account_label = Column(String(100), nullable=False)
     from_date = Column(String(10))
     to_date = Column(String(10))
     status = Column(String(20), nullable=False, default='pending')
     filename = Column(String(255))
     transactions_count = Column(Integer, default=0)
     desc = Column(Text)
-    created_at = Column(String(30), nullable=False)
-    updated_at = Column(String(30), nullable=False)
+    created_at = Column(String(30), nullable=False, default=_now_kl)
+    updated_at = Column(String(30), nullable=False, default=_now_kl, onupdate=_now_kl)
 
     def to_dict(self) -> dict:
         return {
@@ -52,13 +50,17 @@ class KiraTransaction(Base):
     __tablename__ = 'kira_transactions'
 
     transaction_id = Column(String(50), primary_key=True)
-    transaction_date = Column(String(19), nullable=False, index=True)
+    transaction_date = Column(String(19), nullable=False)
     amount = Column(Float, nullable=False)
     payment_method = Column(String(20), nullable=False)
     mdr = Column(Float)
     settlement_amount = Column(Float)
-    merchant = Column(String(100))
+    merchant = Column(String(100), index=True)
     created_at = Column(String(19), default=_now_kl)
+
+    __table_args__ = (
+        Index('ix_kira_merchant_date', 'merchant', 'transaction_date'),
+    )
 
     def to_dict(self) -> dict:
         return {
@@ -76,13 +78,17 @@ class PGTransaction(Base):
     __tablename__ = 'pg_transactions'
 
     transaction_id = Column(String(50), primary_key=True)
-    transaction_date = Column(String(19), nullable=False, index=True)
+    transaction_date = Column(String(19), nullable=False)
     amount = Column(Float, nullable=False)
     platform = Column(String(20), nullable=False)
-    transaction_type = Column(String(20))
     channel = Column(String(50), nullable=False)
     account_label = Column(String(50), nullable=False)
     created_at = Column(String(19), default=_now_kl)
+
+    __table_args__ = (
+        Index('ix_pg_account_date', 'account_label', 'transaction_date'),
+        Index('ix_pg_account_date_channel', 'account_label', 'transaction_date', 'channel'),
+    )
 
     def to_dict(self) -> dict:
         return {
@@ -90,73 +96,57 @@ class PGTransaction(Base):
             'transaction_date': self.transaction_date,
             'amount': self.amount,
             'platform': self.platform,
-            'transaction_type': self.transaction_type,
             'channel': self.channel,
             'account_label': self.account_label
         }
 
 
-class Transaction(Base):
-    __tablename__ = 'transactions'
-    
-    transaction_id = Column(Integer, primary_key=True, autoincrement=True)
-    merchant = Column(String(100), nullable=False, index=True)
-    pg_account_label = Column(String(100), index=True)
-    transaction_date = Column(String(10), nullable=False, index=True)
+class KiraPGFee(Base):
+    __tablename__ = 'kira_pg_fees'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    pg_account_label = Column(String(100), nullable=False)
+    transaction_date = Column(String(10), nullable=False)
     channel = Column(String(20), nullable=False)
-    kira_amount = Column(Float, default=0)
-    pg_amount = Column(Float, default=0)
-    mdr = Column(Float, default=0)
-    kira_settlement_amount = Column(Float, default=0)
-    volume = Column(Integer, default=0)
-    settlement_date = Column(String(10))
-    created_at = Column(String(19), default=_now_kl)
+    fee_rate = Column(Float)
+    remarks = Column(Text)
     updated_at = Column(String(19), default=_now_kl, onupdate=_now_kl)
-    
+
     __table_args__ = (
-        {'sqlite_autoincrement': True},
+        Index('ix_kira_pg_fee_lookup', 'pg_account_label', 'transaction_date', 'channel', unique=True),
     )
-    
-    def _round(self, value):
-        return round(value, 2) if value is not None else None
-    
+
     def to_dict(self) -> dict:
         return {
-            'transaction_id': self.transaction_id,
-            'merchant': self.merchant,
+            'id': self.id,
             'pg_account_label': self.pg_account_label,
             'transaction_date': self.transaction_date,
             'channel': self.channel,
-            'kira_amount': self._round(self.kira_amount),
-            'pg_amount': self._round(self.pg_amount),
-            'mdr': self._round(self.mdr),
-            'kira_settlement_amount': self._round(self.kira_settlement_amount),
-            'volume': self.volume,
-            'settlement_date': self.settlement_date,
-            'created_at': self.created_at,
+            'fee_rate': round(self.fee_rate, 2) if self.fee_rate else None,
+            'remarks': self.remarks,
             'updated_at': self.updated_at
         }
 
 
-class DepositFee(Base):
-    __tablename__ = 'deposit_fees'
-    
-    deposit_fee_id = Column(Integer, primary_key=True, autoincrement=True)
-    merchant = Column(String(100), nullable=False, index=True)
-    transaction_date = Column(String(10), nullable=False, index=True)
+class DepositLedger(Base):
+    __tablename__ = 'deposit_ledger'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    merchant = Column(String(100), nullable=False)
+    transaction_date = Column(String(10), nullable=False)
     channel = Column(String(20), nullable=False)
     fee_type = Column(String(20))
     fee_rate = Column(Float)
     remarks = Column(Text)
     updated_at = Column(String(19), default=_now_kl, onupdate=_now_kl)
-    
+
     __table_args__ = (
-        {'sqlite_autoincrement': True},
+        Index('ix_deposit_ledger_lookup', 'merchant', 'transaction_date', 'channel', unique=True),
     )
-    
+
     def _round(self, value):
         return round(value, 2) if value is not None else None
-    
+
     def calculate_fee(self, amount: float, volume: int) -> float:
         if not self.fee_type or self.fee_rate is None:
             return 0
@@ -169,10 +159,10 @@ class DepositFee(Base):
             return round(self.fee_rate, 2)
         
         return 0
-    
+
     def to_dict(self) -> dict:
         return {
-            'deposit_fee_id': self.deposit_fee_id,
+            'id': self.id,
             'merchant': self.merchant,
             'transaction_date': self.transaction_date,
             'channel': self.channel,
@@ -183,27 +173,29 @@ class DepositFee(Base):
         }
 
 
-class MerchantBalance(Base):
-    __tablename__ = 'merchant_balances'
+class MerchantLedger(Base):
+    __tablename__ = 'merchant_ledger'
 
-    merchant_balance_id = Column(Integer, primary_key=True, autoincrement=True)
-    merchant = Column(String(100), nullable=False, index=True)
-    transaction_date = Column(String(10), nullable=False, index=True)
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    merchant = Column(String(100), nullable=False)
+    transaction_date = Column(String(10), nullable=False)
     
     settlement_fund = Column(Float)
     settlement_charges = Column(Float)
     withdrawal_amount = Column(Float)
+    withdrawal_rate = Column(Float)
     withdrawal_charges = Column(Float)
     topup_payout_pool = Column(Float)
+    remarks = Column(Text)
+    
     payout_pool_balance = Column(Float)
     available_balance = Column(Float)
     total_balance = Column(Float)
-    remarks = Column(Text)
     
     updated_at = Column(String(19), default=_now_kl, onupdate=_now_kl)
 
     __table_args__ = (
-        {'sqlite_autoincrement': True},
+        Index('ix_merchant_ledger_lookup', 'merchant', 'transaction_date', unique=True),
     )
 
     def _round(self, value):
@@ -211,12 +203,13 @@ class MerchantBalance(Base):
 
     def to_dict(self) -> dict:
         return {
-            'merchant_balance_id': self.merchant_balance_id,
+            'id': self.id,
             'merchant': self.merchant,
             'transaction_date': self.transaction_date,
             'settlement_fund': self._round(self.settlement_fund),
             'settlement_charges': self._round(self.settlement_charges),
             'withdrawal_amount': self._round(self.withdrawal_amount),
+            'withdrawal_rate': self._round(self.withdrawal_rate),
             'withdrawal_charges': self._round(self.withdrawal_charges),
             'topup_payout_pool': self._round(self.topup_payout_pool),
             'payout_pool_balance': self._round(self.payout_pool_balance),
@@ -227,12 +220,12 @@ class MerchantBalance(Base):
         }
 
 
-class AgentBalance(Base):
-    __tablename__ = 'agent_balances'
-    
-    agent_balance_id = Column(Integer, primary_key=True, autoincrement=True)
-    merchant = Column(String(100), nullable=False, index=True)
-    transaction_date = Column(String(10), nullable=False, index=True)
+class AgentLedger(Base):
+    __tablename__ = 'agent_ledger'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    merchant = Column(String(100), nullable=False)
+    transaction_date = Column(String(10), nullable=False)
     
     commission_rate_fpx = Column(Float)
     commission_rate_ewallet = Column(Float)
@@ -240,9 +233,9 @@ class AgentBalance(Base):
     balance = Column(Float)
     
     updated_at = Column(String(30), default=_now_kl, onupdate=_now_kl)
-    
+
     __table_args__ = (
-        {'sqlite_autoincrement': True},
+        Index('ix_agent_ledger_lookup', 'merchant', 'transaction_date', unique=True),
     )
 
     def _round(self, value):
@@ -250,7 +243,7 @@ class AgentBalance(Base):
 
     def to_dict(self) -> dict:
         return {
-            'agent_balance_id': self.agent_balance_id,
+            'id': self.id,
             'merchant': self.merchant,
             'transaction_date': self.transaction_date,
             'commission_rate_fpx': self._round(self.commission_rate_fpx),

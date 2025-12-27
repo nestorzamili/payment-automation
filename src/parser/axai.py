@@ -34,7 +34,6 @@ class AxaiParser:
                     'transaction_id': str(row['Order Number']),
                     'transaction_date': self._parse_date(row['Payment Time']),
                     'amount': float(row['Payment Amount']),
-                    'transaction_type': 'FPX' if channel == 'FPX' else 'ewallet',
                     'channel': channel,
                     'account_label': account_label
                 }
@@ -86,7 +85,6 @@ class AxaiParser:
                     transaction_date=tx['transaction_date'],
                     amount=tx['amount'],
                     platform='axai',
-                    transaction_type=tx['transaction_type'],
                     channel=tx['channel'],
                     account_label=tx['account_label']
                 ).on_conflict_do_nothing(

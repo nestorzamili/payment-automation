@@ -1,8 +1,8 @@
-from typing import Dict, Any, List
-from sqlalchemy import func, and_
+from typing import Dict, Any
+from sqlalchemy import func
 
 from src.core.database import get_session
-from src.core.models import MerchantBalance, AgentBalance, Transaction
+from src.core.models import MerchantLedger, KiraTransaction
 from src.core.logger import get_logger
 
 logger = get_logger(__name__)
@@ -27,14 +27,14 @@ class LedgerSummaryService:
             date_prefix = f"{year}-"
             
             results = session.query(
-                Transaction.merchant,
-                func.substr(Transaction.transaction_date, 6, 2).label('month'),
-                func.sum(func.coalesce(Transaction.amount, 0)).label('total')
+                KiraTransaction.merchant,
+                func.substr(KiraTransaction.transaction_date, 6, 2).label('month'),
+                func.sum(func.coalesce(KiraTransaction.amount, 0)).label('total')
             ).filter(
-                Transaction.transaction_date.like(f"{date_prefix}%")
+                KiraTransaction.transaction_date.like(f"{date_prefix}%")
             ).group_by(
-                Transaction.merchant,
-                func.substr(Transaction.transaction_date, 6, 2)
+                KiraTransaction.merchant,
+                func.substr(KiraTransaction.transaction_date, 6, 2)
             ).all()
             
             return self._format_results(results)
@@ -49,14 +49,14 @@ class LedgerSummaryService:
             date_prefix = f"{year}-"
             
             results = session.query(
-                Transaction.merchant,
-                func.substr(Transaction.transaction_date, 6, 2).label('month'),
-                func.sum(func.coalesce(Transaction.amount, 0)).label('total')
+                KiraTransaction.merchant,
+                func.substr(KiraTransaction.transaction_date, 6, 2).label('month'),
+                func.sum(func.coalesce(KiraTransaction.amount, 0)).label('total')
             ).filter(
-                Transaction.transaction_date.like(f"{date_prefix}%")
+                KiraTransaction.transaction_date.like(f"{date_prefix}%")
             ).group_by(
-                Transaction.merchant,
-                func.substr(Transaction.transaction_date, 6, 2)
+                KiraTransaction.merchant,
+                func.substr(KiraTransaction.transaction_date, 6, 2)
             ).all()
             
             return self._format_results(results)
@@ -71,14 +71,14 @@ class LedgerSummaryService:
             date_prefix = f"{year}-"
             
             results = session.query(
-                MerchantBalance.merchant,
-                func.substr(MerchantBalance.transaction_date, 6, 2).label('month'),
-                func.max(MerchantBalance.payout_pool_balance).label('total')
+                MerchantLedger.merchant,
+                func.substr(MerchantLedger.transaction_date, 6, 2).label('month'),
+                func.max(MerchantLedger.payout_pool_balance).label('total')
             ).filter(
-                MerchantBalance.transaction_date.like(f"{date_prefix}%")
+                MerchantLedger.transaction_date.like(f"{date_prefix}%")
             ).group_by(
-                MerchantBalance.merchant,
-                func.substr(MerchantBalance.transaction_date, 6, 2)
+                MerchantLedger.merchant,
+                func.substr(MerchantLedger.transaction_date, 6, 2)
             ).all()
             
             return self._format_results(results)

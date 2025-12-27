@@ -3,8 +3,8 @@ from src.sheets.parameters import ParameterLoader
 from src.sheets.kira_pg import KiraPGService
 from src.sheets.deposit import DepositService
 from src.sheets.transaction import TransactionService
-from src.sheets.merchant_balance import MerchantBalanceService
-from src.sheets.agent_balance import AgentBalanceService
+from src.sheets.merchant_ledger import MerchantLedgerService
+from src.sheets.agent_ledger import AgentLedgerService
 
 __all__ = [
     'SheetsClient',
@@ -12,6 +12,6 @@ __all__ = [
     'KiraPGService',
     'DepositService',
     'TransactionService',
-    'MerchantBalanceService',
-    'AgentBalanceService',
+    'MerchantLedgerService',
+    'AgentLedgerService',
 ]

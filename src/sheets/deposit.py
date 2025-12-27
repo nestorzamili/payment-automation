@@ -3,7 +3,7 @@ from typing import List, Dict, Any, Set, Optional
 from sqlalchemy import and_
 
 from src.core.database import get_session
-from src.core.models import DepositFee
+from src.core.models import DepositLedger
 from src.core.logger import get_logger
 from src.sheets.client import SheetsClient
 from src.sheets.transaction import TransactionService
@@ -25,40 +25,26 @@ class DepositService:
         self.param_loader = param_loader
         self.tx_service = TransactionService(self.add_on_holidays, self.param_loader)
     
-    def generate_from_joined_data(self, joined_data: List[Dict[str, Any]]) -> int:
-        if not joined_data:
-            return 0
+    def generate_for_merchant(self, merchant: str, year: int, month: int) -> int:
+        self._init_ledgers(merchant, year, month)
         
-        count = self.tx_service.aggregate_transactions()
-        
-        merchant_months = set()
-        for row in joined_data:
-            merchant = row['kira_merchant']
-            date = row['kira_date']
-            year = int(date[:4])
-            month = int(date[5:7])
-            merchant_months.add((merchant, year, month))
-        
-        for merchant, year, month in merchant_months:
-            self.tx_service.fill_month_dates(merchant, year, month)
-            self._init_balances(merchant, year, month)
-        
-        logger.info(f"Generated deposit data: {count} transaction records")
-        return count
+        data = self.tx_service.get_monthly_data(merchant, year, month)
+        logger.info(f"Generated deposit data for {merchant}: {len(data)} rows")
+        return len(data)
     
-    def _init_balances(self, merchant: str, year: int, month: int):
+    def _init_ledgers(self, merchant: str, year: int, month: int):
         try:
-            from src.sheets.merchant_balance import MerchantBalanceService
-            from src.sheets.agent_balance import AgentBalanceService
+            from src.sheets.merchant_ledger import MerchantLedgerService
+            from src.sheets.agent_ledger import AgentLedgerService
             
-            merchant_service = MerchantBalanceService(self.sheets_client)
+            merchant_service = MerchantLedgerService(self.sheets_client)
             merchant_service.init_from_transactions(merchant, year, month)
             
-            agent_service = AgentBalanceService(self.sheets_client)
+            agent_service = AgentLedgerService(self.sheets_client)
             agent_service.init_from_transactions(merchant, year, month)
             
         except Exception as e:
-            logger.error(f"Failed to init balances: {e}")
+            logger.error(f"Failed to init ledgers: {e}")
     
     def _normalize_channel(self, payment_method: str) -> str:
         if not payment_method:
@@ -93,12 +79,11 @@ class DepositService:
                 
                 is_empty = (fee_type is None and fee_rate is None)
                 
-                existing = session.query(DepositFee).filter(
+                existing = session.query(DepositLedger).filter(
                     and_(
-                        DepositFee.merchant == merchant,
-                        DepositFee.transaction_date == date,
-                        DepositFee.channel == channel,
-                        DepositFee.fee_type != 'kira_pg'
+                        DepositLedger.merchant == merchant,
+                        DepositLedger.transaction_date == date,
+                        DepositLedger.channel == channel
                     )
                 ).first()
                 
@@ -106,11 +91,11 @@ class DepositService:
                     if is_empty:
                         session.delete(existing)
                     else:
-                        existing.fee_type = fee_type  # type: ignore
-                        existing.fee_rate = fee_rate  # type: ignore
-                        existing.remarks = remarks  # type: ignore
+                        existing.fee_type = fee_type
+                        existing.fee_rate = fee_rate
+                        existing.remarks = remarks
                 elif not is_empty:
-                    new_record = DepositFee(
+                    new_record = DepositLedger(
                         merchant=merchant,
                         transaction_date=date,
                         channel=channel,
@@ -153,15 +138,8 @@ class DepositService:
         merchant: str, 
         year: int, 
         month: int, 
-        sheet_name: Optional[str] = None
+        sheet_name: str
     ) -> Dict[str, Any]:
-        from src.core.loader import load_settings
-        
-        target_sheet = sheet_name
-        if target_sheet is None:
-            settings = load_settings()
-            target_sheet = settings['google_sheets']['sheets']['deposit']
-        
         try:
             data = self.get_deposit_data(merchant, year, month)
             
@@ -182,13 +160,13 @@ class DepositService:
                 row = [record.get(col, '') for col in columns]
                 rows.append(row)
             
-            self.sheets_client.write_data(target_sheet, rows, start_cell='A7')
+            self.sheets_client.write_data(sheet_name, rows, start_cell='A7')
             
             month_str = f"{['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][month-1]} {year}"
-            self.sheets_client.write_data(target_sheet, [[merchant]], start_cell='B1')
-            self.sheets_client.write_data(target_sheet, [[month_str]], start_cell='B2')
+            self.sheets_client.write_data(sheet_name, [[merchant]], start_cell='B1')
+            self.sheets_client.write_data(sheet_name, [[month_str]], start_cell='B2')
             
-            logger.info(f"Uploaded {len(rows)} deposit rows to {target_sheet}")
+            logger.info(f"Uploaded {len(rows)} deposit rows to {sheet_name}")
             return {
                 'success': True,
                 'rows_uploaded': len(rows),

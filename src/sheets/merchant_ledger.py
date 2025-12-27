@@ -1,10 +1,10 @@
-from typing import List, Dict, Any, Set
+from typing import List, Dict, Any, Optional
 from calendar import monthrange
 
 from sqlalchemy import and_
 
 from src.core.database import get_session
-from src.core.models import MerchantBalance, Transaction, DepositFee
+from src.core.models import MerchantLedger
 from src.core.logger import get_logger
 from src.sheets.client import SheetsClient
 from src.sheets.transaction import TransactionService
@@ -12,9 +12,9 @@ from src.sheets.transaction import TransactionService
 logger = get_logger(__name__)
 
 
-class MerchantBalanceService:
+class MerchantLedgerService:
     
-    def __init__(self, sheets_client: SheetsClient = None):
+    def __init__(self, sheets_client: Optional[SheetsClient] = None):
         self.sheets_client = sheets_client or SheetsClient()
     
     def _r(self, value):
@@ -42,10 +42,10 @@ class MerchantBalanceService:
             date_prefix = f"{year}-{month:02d}"
             _, last_day = monthrange(year, month)
             
-            existing = session.query(MerchantBalance.transaction_date).filter(
+            existing = session.query(MerchantLedger.transaction_date).filter(
                 and_(
-                    MerchantBalance.merchant == merchant,
-                    MerchantBalance.transaction_date.like(f"{date_prefix}%")
+                    MerchantLedger.merchant == merchant,
+                    MerchantLedger.transaction_date.like(f"{date_prefix}%")
                 )
             ).all()
             
@@ -54,7 +54,7 @@ class MerchantBalanceService:
             for day in range(1, last_day + 1):
                 date_str = f"{year}-{month:02d}-{day:02d}"
                 if date_str not in existing_dates:
-                    new_record = MerchantBalance(
+                    new_record = MerchantLedger(
                         merchant=merchant,
                         transaction_date=date_str
                     )
@@ -65,12 +65,14 @@ class MerchantBalanceService:
             
         except Exception as e:
             session.rollback()
-            logger.error(f"Failed to init merchant balance: {e}")
+            logger.error(f"Failed to init merchant ledger: {e}")
             raise
         finally:
             session.close()
     
-    def get_balance_data(self, merchant: str, year: int, month: int) -> List[Dict[str, Any]]:
+    def get_ledger_data(self, merchant: str, year: int, month: int) -> List[Dict[str, Any]]:
+        self.init_from_transactions(merchant, year, month)
+        
         session = get_session()
         tx_service = TransactionService()
         
@@ -78,19 +80,19 @@ class MerchantBalanceService:
             tx_data = tx_service.get_monthly_data(merchant, year, month)
             
             date_prefix = f"{year}-{month:02d}"
-            balances = session.query(MerchantBalance).filter(
+            ledgers = session.query(MerchantLedger).filter(
                 and_(
-                    MerchantBalance.merchant == merchant,
-                    MerchantBalance.transaction_date.like(f"{date_prefix}%")
+                    MerchantLedger.merchant == merchant,
+                    MerchantLedger.transaction_date.like(f"{date_prefix}%")
                 )
-            ).order_by(MerchantBalance.transaction_date).all()
+            ).order_by(MerchantLedger.transaction_date).all()
             
-            balance_map = {b.transaction_date: b for b in balances}
+            ledger_map = {lg.transaction_date: lg for lg in ledgers}
             
             result = []
             for tx_row in tx_data:
                 date = tx_row['transaction_date']
-                balance = balance_map.get(date)
+                ledger = ledger_map.get(date)
                 
                 row = {
                     'transaction_date': date,
@@ -105,19 +107,21 @@ class MerchantBalanceService:
                     'available_fpx': tx_row['available_fpx'],
                     'available_ewallet': tx_row['available_ewallet'],
                     'available_total': tx_row['available_total'],
-                    'settlement_fund': balance.settlement_fund if balance else None,
-                    'settlement_charges': balance.settlement_charges if balance else None,
-                    'withdrawal_amount': balance.withdrawal_amount if balance else None,
-                    'withdrawal_charges': balance.withdrawal_charges if balance else None,
-                    'topup_payout_pool': balance.topup_payout_pool if balance else None,
-                    'payout_pool_balance': balance.payout_pool_balance if balance else None,
-                    'available_balance': balance.available_balance if balance else None,
-                    'total_balance': balance.total_balance if balance else None,
-                    'remarks': balance.remarks if balance else tx_row.get('remarks')
+                    'settlement_fund': ledger.settlement_fund if ledger else None,
+                    'settlement_charges': ledger.settlement_charges if ledger else None,
+                    'withdrawal_amount': ledger.withdrawal_amount if ledger else None,
+                    'withdrawal_rate': ledger.withdrawal_rate if ledger else None,
+                    'withdrawal_charges': ledger.withdrawal_charges if ledger else None,
+                    'topup_payout_pool': ledger.topup_payout_pool if ledger else None,
+                    'payout_pool_balance': ledger.payout_pool_balance if ledger else None,
+                    'available_balance': ledger.available_balance if ledger else None,
+                    'total_balance': ledger.total_balance if ledger else None,
+                    'updated_at': ledger.updated_at if ledger else None,
+                    'remarks': ledger.remarks if ledger else tx_row.get('remarks')
                 }
                 
-                if balance:
-                    row['merchant_balance_id'] = balance.merchant_balance_id
+                if ledger:
+                    row['id'] = ledger.id
                 
                 result.append(row)
             
@@ -133,25 +137,25 @@ class MerchantBalanceService:
         try:
             valid_ids = []
             for row in manual_data:
-                balance_id = row.get('merchant_balance_id')
-                if balance_id and isinstance(balance_id, (int, float)):
-                    valid_ids.append(int(balance_id))
+                ledger_id = row.get('id')
+                if ledger_id and isinstance(ledger_id, (int, float)):
+                    valid_ids.append(int(ledger_id))
             
             if not valid_ids:
                 return 0
             
-            records = session.query(MerchantBalance).filter(
-                MerchantBalance.merchant_balance_id.in_(valid_ids)
+            records = session.query(MerchantLedger).filter(
+                MerchantLedger.id.in_(valid_ids)
             ).all()
             
-            records_by_id = {r.merchant_balance_id: r for r in records}
-            manual_by_id = {int(row['merchant_balance_id']): row for row in manual_data if row.get('merchant_balance_id')}
+            records_by_id = {r.id: r for r in records}
+            manual_by_id = {int(row['id']): row for row in manual_data if row.get('id')}
             
             merchants_to_recalc = set()
             
-            for balance_id in valid_ids:
-                existing = records_by_id.get(balance_id)
-                row = manual_by_id.get(balance_id)
+            for ledger_id in valid_ids:
+                existing = records_by_id.get(ledger_id)
+                row = manual_by_id.get(ledger_id)
                 
                 if not existing or not row:
                     continue
@@ -175,14 +179,28 @@ class MerchantBalanceService:
                 val = row.get('withdrawal_amount')
                 if val == 'CLEAR':
                     existing.withdrawal_amount = None
+                    existing.withdrawal_rate = None
                     existing.withdrawal_charges = None
                     merchants_to_recalc.add(existing.merchant)
                 elif val is not None:
-                    withdrawal_amount = self._to_float(val)
-                    if withdrawal_amount is not None:
-                        existing.withdrawal_amount = withdrawal_amount
-                        existing.withdrawal_charges = self._r(withdrawal_amount * 0.01)
-                        merchants_to_recalc.add(existing.merchant)
+                    existing.withdrawal_amount = self._to_float(val)
+                    merchants_to_recalc.add(existing.merchant)
+                
+                val = row.get('withdrawal_rate')
+                if val == 'CLEAR':
+                    existing.withdrawal_rate = None
+                    existing.withdrawal_charges = None
+                    merchants_to_recalc.add(existing.merchant)
+                elif val is not None:
+                    existing.withdrawal_rate = self._to_float(val)
+                    merchants_to_recalc.add(existing.merchant)
+                
+                if existing.withdrawal_amount and existing.withdrawal_rate:
+                    existing.withdrawal_charges = self._r(
+                        existing.withdrawal_amount * existing.withdrawal_rate / 100
+                    )
+                else:
+                    existing.withdrawal_charges = None
                 
                 val = row.get('topup_payout_pool')
                 if val == 'CLEAR':
@@ -204,7 +222,7 @@ class MerchantBalanceService:
                 self._recalculate_balances(session, merchant)
             
             session.commit()
-            logger.info(f"Updated {count} merchant balance rows")
+            logger.info(f"Updated {count} merchant ledger rows")
             return count
             
         except Exception as e:
@@ -215,11 +233,9 @@ class MerchantBalanceService:
             session.close()
     
     def _recalculate_balances(self, session, merchant: str):
-        rows = session.query(MerchantBalance).filter(
-            MerchantBalance.merchant == merchant
-        ).order_by(MerchantBalance.transaction_date).all()
-        
-        tx_service = TransactionService()
+        rows = session.query(MerchantLedger).filter(
+            MerchantLedger.merchant == merchant
+        ).order_by(MerchantLedger.transaction_date).all()
         
         prev_payout_pool = 0
         prev_available = 0
@@ -265,27 +281,21 @@ class MerchantBalanceService:
             prev_payout_pool = row.payout_pool_balance if row.payout_pool_balance is not None else prev_payout_pool
             prev_available = row.available_balance if row.available_balance is not None else prev_available
     
-    def upload_to_sheet(self, merchant: str, year: int, month: int, sheet_name: str = None) -> Dict[str, Any]:
-        from src.core.loader import load_settings
-        
-        if sheet_name is None:
-            settings = load_settings()
-            sheet_name = settings['google_sheets']['sheets']['merchant_ledger']
-        
+    def upload_to_sheet(self, merchant: str, year: int, month: int, sheet_name: str) -> Dict[str, Any]:
         try:
-            data = self.get_balance_data(merchant, year, month)
+            data = self.get_ledger_data(merchant, year, month)
             
             if not data:
                 return {'success': False, 'error': 'No data to upload'}
             
             columns = [
-                'merchant_balance_id', 'transaction_date', 
+                'id', 'transaction_date', 
                 'fpx_amount', 'fpx_fee', 'fpx_gross',
                 'ewallet_amount', 'ewallet_fee', 'ewallet_gross',
                 'total_gross', 'total_fee',
                 'available_fpx', 'available_ewallet', 'available_total',
                 'settlement_fund', 'settlement_charges',
-                'withdrawal_amount', 'withdrawal_charges',
+                'withdrawal_amount', 'withdrawal_rate', 'withdrawal_charges',
                 'topup_payout_pool', 'payout_pool_balance',
                 'available_balance', 'total_balance',
                 'remarks'
@@ -298,7 +308,7 @@ class MerchantBalanceService:
             
             self.sheets_client.write_data(sheet_name, rows, start_cell='A5')
             
-            logger.info(f"Uploaded {len(rows)} merchant balance rows to {sheet_name}")
+            logger.info(f"Uploaded {len(rows)} merchant ledger rows to {sheet_name}")
             return {
                 'success': True,
                 'rows_uploaded': len(rows),

@@ -1,10 +1,10 @@
 import pandas as pd
 from typing import List, Dict, Any, Optional
 
-from sqlalchemy import and_, func
+from sqlalchemy import func
 
 from src.core.database import get_session
-from src.core.models import DepositFee, KiraTransaction, PGTransaction
+from src.core.models import KiraPGFee, KiraTransaction, PGTransaction
 from src.core.logger import get_logger
 from src.sheets.client import SheetsClient
 from src.sheets.parameters import ParameterLoader
@@ -107,7 +107,7 @@ class KiraPGService:
             
             all_keys = set(kira_map.keys()) | set(pg_map.keys())
             
-            fee_map = self._load_fee_map()
+            fee_map = self._load_fee_map(session)
             rows = []
             
             for key in all_keys:
@@ -167,15 +167,9 @@ class KiraPGService:
         finally:
             session.close()
     
-    def _load_fee_map(self) -> Dict[tuple, DepositFee]:
-        session = get_session()
-        try:
-            fees = session.query(DepositFee).filter(
-                DepositFee.fee_type == 'kira_pg'
-            ).all()
-            return {(f.merchant, f.transaction_date, f.channel): f for f in fees}
-        finally:
-            session.close()
+    def _load_fee_map(self, session) -> Dict[tuple, KiraPGFee]:
+        fees = session.query(KiraPGFee).all()
+        return {(f.pg_account_label, f.transaction_date, f.channel): f for f in fees}
     
     def save_manual_data(self, manual_data: List[Dict[str, Any]]) -> int:
         session = get_session()
@@ -192,13 +186,10 @@ class KiraPGService:
                 
                 logger.debug(f"Saving fee for {pg_merchant}/{date}/{channel}: rate={row.get('fee_rate')}")
                 
-                existing = session.query(DepositFee).filter(
-                    and_(
-                        DepositFee.merchant == pg_merchant,
-                        DepositFee.transaction_date == date,
-                        DepositFee.channel == channel,
-                        DepositFee.fee_type == 'kira_pg'
-                    )
+                existing = session.query(KiraPGFee).filter(
+                    KiraPGFee.pg_account_label == pg_merchant,
+                    KiraPGFee.transaction_date == date,
+                    KiraPGFee.channel == channel
                 ).first()
                 
                 fee_rate_raw = row.get('fee_rate')
@@ -206,20 +197,19 @@ class KiraPGService:
                 
                 if existing:
                     if fee_rate_raw == 'CLEAR':
-                        existing.fee_rate = None  # type: ignore
+                        existing.fee_rate = None
                     elif fee_rate_raw is not None:
-                        existing.fee_rate = self._to_float(fee_rate_raw)  # type: ignore
+                        existing.fee_rate = self._to_float(fee_rate_raw)
                     
                     if remarks_raw == 'CLEAR':
-                        existing.remarks = None  # type: ignore
+                        existing.remarks = None
                     elif remarks_raw is not None and str(remarks_raw).strip():
-                        existing.remarks = str(remarks_raw).strip()  # type: ignore
+                        existing.remarks = str(remarks_raw).strip()
                 else:
-                    new_record = DepositFee(
-                        merchant=pg_merchant,
+                    new_record = KiraPGFee(
+                        pg_account_label=pg_merchant,
                         transaction_date=date,
                         channel=channel,
-                        fee_type='kira_pg',
                         fee_rate=self._to_float(fee_rate_raw) if fee_rate_raw != 'CLEAR' else None,
                         remarks=str(remarks_raw).strip() if remarks_raw and remarks_raw != 'CLEAR' else None
                     )
@@ -238,22 +228,15 @@ class KiraPGService:
         finally:
             session.close()
     
-    def upload_to_sheet(self, df: pd.DataFrame, sheet_name: Optional[str] = None) -> Dict[str, Any]:
-        from src.core.loader import load_settings
-        
-        target_sheet = sheet_name
-        if target_sheet is None:
-            settings = load_settings()
-            target_sheet = settings['google_sheets']['sheets']['kira_pg']
-        
+    def upload_to_sheet(self, df: pd.DataFrame, sheet_name: str) -> Dict[str, Any]:
         try:
-            self.sheets_client.upload_dataframe(target_sheet, df, include_header=True, clear_first=True)
-            logger.info(f"Uploaded {len(df)} rows to {target_sheet}")
+            self.sheets_client.upload_dataframe(sheet_name, df, include_header=True, clear_first=True)
+            logger.info(f"Uploaded {len(df)} rows to {sheet_name}")
             
             return {
                 'success': True,
                 'rows_uploaded': len(df),
-                'sheet_name': target_sheet
+                'sheet_name': sheet_name
             }
         except Exception as e:
             logger.error(f"Failed to upload to sheet: {e}")

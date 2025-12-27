@@ -1,6 +1,6 @@
 from flask import Blueprint, request
 
-from src.sheets.merchant_balance import MerchantBalanceService
+from src.sheets.merchant_ledger import MerchantLedgerService
 from src.core.logger import get_logger
 from src.utils.response import jsend_success, jsend_fail, jsend_error
 
@@ -22,15 +22,15 @@ def update_merchant_balance():
         if not merchant or not year or not month:
             return jsend_fail({'message': 'merchant, year, and month are required'}, 400)
         
-        service = MerchantBalanceService()
+        service = MerchantLedgerService()
         
         if manual_data:
             service.save_manual_data(manual_data)
         
-        logger.info(f"Loading balance for: {merchant} {year}-{month:02d}")
-        balance_data = service.get_balance_data(merchant, year, month)
+        logger.info(f"Loading ledger for: {merchant} {year}-{month:02d}")
+        ledger_data = service.get_ledger_data(merchant, year, month)
         
-        if not balance_data:
+        if not ledger_data:
             return jsend_success({
                 'message': 'No data found',
                 'rows': 0,
@@ -38,13 +38,13 @@ def update_merchant_balance():
             })
         
         return jsend_success({
-            'message': 'Merchant balance updated successfully',
-            'rows': len(balance_data),
-            'data': balance_data
+            'message': 'Merchant ledger updated successfully',
+            'rows': len(ledger_data),
+            'data': ledger_data
         })
             
     except Exception as e:
-        logger.error(f"Error updating merchant balance: {e}")
+        logger.error(f"Error updating merchant ledger: {e}")
         return jsend_error(str(e))
 
 
