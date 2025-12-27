@@ -24,7 +24,7 @@ class DepositService:
         if not joined_data:
             return 0
         
-        count = self.tx_service.aggregate_from_joined_data(joined_data)
+        count = self.tx_service.aggregate_transactions()
         
         merchant_months = set()
         for row in joined_data:

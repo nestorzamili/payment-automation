@@ -1,15 +1,13 @@
 import pandas as pd
 from typing import List, Dict, Any, Set
-from datetime import datetime
 
 from sqlalchemy import and_
 
 from src.core.database import get_session
-from src.core.models import KiraTransaction, PGTransaction, DepositFee
+from src.core.models import Transaction, DepositFee
 from src.core.logger import get_logger
 from src.sheets.client import SheetsClient
 from src.sheets.parameters import ParameterLoader
-from src.utils.holiday import load_malaysia_holidays, calculate_settlement_date
 
 logger = get_logger(__name__)
 
@@ -38,132 +36,72 @@ class KiraPGService:
                 return None
         return None
     
-    def generate_kira_pg(
-        self, 
-        joined_data: List[Dict[str, Any]], 
-        public_holidays: Set[str] = None,
-        add_on_holidays: Set[str] = None
-    ) -> pd.DataFrame:
-        logger.info(f"Generating Kira PG from {len(joined_data)} transactions")
+    def get_kira_pg_data(self) -> List[Dict[str, Any]]:
+        session = get_session()
         
-        if not joined_data:
-            return pd.DataFrame()
-        
-        if public_holidays is None or add_on_holidays is None:
-            self.param_loader.load_all_parameters()
-            add_on_holidays = self.param_loader.get_add_on_holidays()
-            public_holidays = load_malaysia_holidays()
-        
-        rows = self._calculate_rows(joined_data, public_holidays, add_on_holidays)
-        
-        df = pd.DataFrame(rows)
-        
-        if 'PG KIRA Daily Variance' in df.columns:
-            df['PG KIRA Cumulative Variance'] = df['PG KIRA Daily Variance'].cumsum()
-        
-        logger.info(f"Generated {len(df)} Kira PG rows")
-        return df
-    
-    def get_kira_pg_data(
-        self,
-        joined_data: List[Dict[str, Any]],
-        public_holidays: Set[str] = None,
-        add_on_holidays: Set[str] = None
-    ) -> List[Dict[str, Any]]:
-        if not joined_data:
-            return []
-        
-        if public_holidays is None or add_on_holidays is None:
-            self.param_loader.load_all_parameters()
-            add_on_holidays = self.param_loader.get_add_on_holidays()
-            public_holidays = load_malaysia_holidays()
-        
-        return self._calculate_rows(joined_data, public_holidays, add_on_holidays)
-    
-    def _calculate_rows(
-        self, 
-        joined_data: List[Dict[str, Any]],
-        public_holidays: Set[str],
-        add_on_holidays: Set[str]
-    ) -> List[Dict[str, Any]]:
-        df = pd.DataFrame(joined_data)
-        
-        grouped = df.groupby(['kira_date', 'pg_account_label', 'channel']).agg({
-            'kira_amount': 'sum',
-            'kira_mdr': 'sum',
-            'kira_settlement_amount': 'sum',
-            'pg_amount': 'sum',
-            'transaction_id': 'count',
-            'transaction_type': 'first',
-            'platform': 'first',
-            'kira_merchant': 'first'
-        }).reset_index()
-        
-        grouped = grouped.rename(columns={'transaction_id': 'transaction_count'})
-        
-        fee_map = self._load_fee_map()
-        
-        rows = []
-        
-        for _, row in grouped.iterrows():
-            kira_date = row['kira_date']
-            account_label = row['pg_account_label']
-            merchant = row['kira_merchant']
-            transaction_type = row['transaction_type']
-            channel = row['channel']
+        try:
+            transactions = session.query(Transaction).all()
             
-            settlement_rule = self.param_loader.get_settlement_rule(transaction_type)
+            if not transactions:
+                return []
             
-            settlement_date = calculate_settlement_date(
-                kira_date,
-                settlement_rule,
-                public_holidays,
-                add_on_holidays
-            )
+            fee_map = self._load_fee_map()
             
-            kira_amount = row['kira_amount'] or 0
-            pg_amount = row['pg_amount'] or 0
-            daily_variance = kira_amount - pg_amount
+            rows = []
+            for tx in transactions:
+                if not tx.pg_account_label:
+                    continue
+                if (tx.kira_amount or 0) == 0 and (tx.pg_amount or 0) == 0:
+                    continue
+                if tx.merchant and 'test' in tx.merchant.lower():
+                    continue
+                    
+                fee_key = (tx.merchant, tx.transaction_date, tx.channel)
+                fee_record = fee_map.get(fee_key)
+                
+                fee_rate = fee_record.fee_rate if fee_record else None
+                remarks = fee_record.remarks if fee_record else None
+                
+                fees = 0
+                if fee_rate is not None:
+                    fees = self._r((tx.pg_amount or 0) * fee_rate / 100)
+                
+                settlement_amount = self._r((tx.pg_amount or 0) - fees) if fees else None
+                
+                daily_variance = self._r((tx.kira_amount or 0) - (tx.pg_amount or 0))
+                
+                rows.append({
+                    'pg_merchant': tx.pg_account_label,
+                    'channel': tx.channel,
+                    'kira_amount': self._r(tx.kira_amount),
+                    'mdr': self._r(tx.mdr),
+                    'kira_settlement_amount': self._r(tx.kira_settlement_amount),
+                    'pg_date': tx.transaction_date,
+                    'amount_pg': self._r(tx.pg_amount),
+                    'transaction_count': tx.volume,
+                    'settlement_rule': 'T+1',
+                    'settlement_date': tx.settlement_date,
+                    'fee_rate': fee_rate,
+                    'fees': fees,
+                    'settlement_amount': settlement_amount,
+                    'daily_variance': daily_variance,
+                    'cumulative_variance': 0,
+                    'remarks': remarks,
+                    'merchant': tx.merchant
+                })
             
-            fee_key = (merchant, kira_date, self._normalize_channel(channel))
-            fee_record = fee_map.get(fee_key)
+            rows.sort(key=lambda x: (x['pg_date'], x['pg_merchant'] or '', x['channel']))
             
-            fee_rate = fee_record.fee_rate if fee_record else None
-            remarks = fee_record.remarks if fee_record else None
+            cumulative = 0
+            for row in rows:
+                cumulative += row['daily_variance'] or 0
+                row['cumulative_variance'] = self._r(cumulative)
             
-            fees = 0
-            if fee_rate is not None:
-                fees = self._r(pg_amount * fee_rate / 100)
+            logger.info(f"Generated {len(rows)} Kira PG rows from transactions")
+            return rows
             
-            settlement_amount = self._r(pg_amount - fees) if fees else None
-            
-            rows.append({
-                'pg_merchant': account_label,
-                'channel': channel,
-                'kira_amount': self._r(kira_amount),
-                'mdr': self._r(row['kira_mdr'] or 0),
-                'kira_settlement_amount': self._r(row['kira_settlement_amount'] or 0),
-                'pg_date': kira_date,
-                'amount_pg': self._r(pg_amount),
-                'transaction_count': int(row['transaction_count']),
-                'settlement_rule': settlement_rule,
-                'settlement_date': settlement_date,
-                'fee_rate': fee_rate,
-                'fees': fees,
-                'settlement_amount': settlement_amount,
-                'daily_variance': self._r(daily_variance),
-                'cumulative_variance': 0,
-                'remarks': remarks
-            })
-        
-        rows.sort(key=lambda x: (x['pg_date'], x['pg_merchant'], x['channel']))
-        
-        cumulative = 0
-        for row in rows:
-            cumulative += row['daily_variance'] or 0
-            row['cumulative_variance'] = self._r(cumulative)
-        
-        return rows
+        finally:
+            session.close()
     
     def _normalize_channel(self, channel: str) -> str:
         if not channel:
@@ -186,14 +124,12 @@ class KiraPGService:
         count = 0
         
         try:
-            from src.sheets.transactions import get_all_joined_transactions
-            joined_data = get_all_joined_transactions()
-            
-            pg_to_merchant = {}
-            for tx in joined_data:
-                key = (tx['pg_account_label'], tx['kira_date'][:10], self._normalize_channel(tx['channel']))
-                if key not in pg_to_merchant:
-                    pg_to_merchant[key] = tx['kira_merchant']
+            tx_map = {}
+            transactions = session.query(Transaction).all()
+            for tx in transactions:
+                key = (tx.pg_account_label, tx.transaction_date, tx.channel)
+                if key not in tx_map:
+                    tx_map[key] = tx.merchant
             
             for row in manual_data:
                 pg_merchant = row.get('pg_merchant')
@@ -201,10 +137,13 @@ class KiraPGService:
                 channel = self._normalize_channel(row.get('channel'))
                 
                 lookup_key = (pg_merchant, date, channel)
-                merchant = pg_to_merchant.get(lookup_key)
+                merchant = tx_map.get(lookup_key)
                 
                 if not merchant:
+                    logger.debug(f"No merchant found for key: {lookup_key}")
                     continue
+                
+                logger.debug(f"Saving fee for {merchant}/{date}/{channel}: rate={row.get('fee_rate')}")
                 
                 existing = session.query(DepositFee).filter(
                     and_(

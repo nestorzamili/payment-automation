@@ -53,21 +53,18 @@ def run_parse_job(run_id: str):
             logger.error(f"{label} parse error: {e}")
     
     try:
-        from src.sheets.transactions import get_all_joined_transactions
-        from src.sheets.deposit import DepositService
+        from src.sheets.transaction import TransactionService
         from src.sheets.parameters import ParameterLoader
         from src.sheets.client import SheetsClient
         
-        joined_data = get_all_joined_transactions()
-        if joined_data:
-            sheets_client = SheetsClient()
-            param_loader = ParameterLoader(sheets_client)
-            param_loader.load_all_parameters()
-            add_on_holidays = param_loader.get_add_on_holidays()
-            
-            deposit_service = DepositService(sheets_client, add_on_holidays)
-            count = deposit_service.generate_from_joined_data(joined_data)
-            logger.info(f"Aggregated {count} transactions")
+        sheets_client = SheetsClient()
+        param_loader = ParameterLoader(sheets_client)
+        param_loader.load_all_parameters()
+        add_on_holidays = param_loader.get_add_on_holidays()
+        
+        service = TransactionService(add_on_holidays)
+        count = service.aggregate_transactions()
+        logger.info(f"Aggregated {count} transactions")
     except Exception as e:
         logger.error(f"Aggregation error: {e}")
     

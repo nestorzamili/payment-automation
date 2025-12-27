@@ -39,3 +39,71 @@ function formatDate(value) {
   }
   return String(value);
 }
+
+function setupMerchantDropdowns() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  
+  const options = {
+    method: 'GET',
+    headers: { 'x-api-key': CONFIG.API_KEY },
+    muteHttpExceptions: true,
+  };
+
+  try {
+    const merchantResponse = UrlFetchApp.fetch(
+      `${CONFIG.BASE_URL}/balance/merchant/merchants`,
+      options,
+    );
+    const merchantResult = JSON.parse(merchantResponse.getContentText());
+
+    const periodResponse = UrlFetchApp.fetch(
+      `${CONFIG.BASE_URL}/balance/merchant/periods`,
+      options,
+    );
+    const periodResult = JSON.parse(periodResponse.getContentText());
+
+    if (merchantResult.status !== 'success' || !merchantResult.data) {
+      SpreadsheetApp.getUi().alert('Failed to get merchants');
+      return;
+    }
+
+    const merchants = merchantResult.data.merchants || [];
+    const periods = periodResult.data?.periods || [];
+
+    const sheetsToUpdate = [
+      CONFIG.DEPOSIT_SHEET,
+      CONFIG.MERCHANT_LEDGER,
+      CONFIG.AGENT_LEDGER,
+    ];
+
+    const merchantRule = SpreadsheetApp.newDataValidation()
+      .requireValueInList(merchants, true)
+      .setAllowInvalid(false)
+      .build();
+
+    const periodRule = periods.length > 0 
+      ? SpreadsheetApp.newDataValidation()
+          .requireValueInList(periods, true)
+          .setAllowInvalid(false)
+          .build()
+      : null;
+
+    for (const sheetName of sheetsToUpdate) {
+      const sheet = ss.getSheetByName(sheetName);
+      if (sheet) {
+        sheet.getRange('B1').setDataValidation(merchantRule);
+        if (periodRule) {
+          sheet.getRange('B2').setDataValidation(periodRule);
+        }
+      }
+    }
+
+    SpreadsheetApp.getUi().alert(
+      'Dropdowns updated:\n' + 
+      merchants.length + ' merchants\n' + 
+      periods.length + ' periods'
+    );
+  } catch (error) {
+    SpreadsheetApp.getUi().alert('Error: ' + error.message);
+  }
+}

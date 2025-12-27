@@ -18,26 +18,75 @@ class TransactionService:
         self.public_holidays = load_malaysia_holidays()
         self.add_on_holidays = add_on_holidays or set()
     
-    def aggregate_from_joined_data(self, joined_data: List[Dict[str, Any]]) -> int:
-        if not joined_data:
-            return 0
+    def aggregate_transactions(self) -> int:
+        session = get_session()
         
-        aggregated = {}
-        
-        for row in joined_data:
-            merchant = row['kira_merchant']
-            date = row['kira_date']
-            channel = self._normalize_channel(row['kira_payment_method'])
-            amount = row['kira_amount']
+        try:
+            kira_results = session.query(
+                PGTransaction.account_label,
+                func.substr(KiraTransaction.transaction_date, 1, 10).label('tx_date'),
+                KiraTransaction.payment_method,
+                KiraTransaction.merchant,
+                func.sum(KiraTransaction.amount).label('kira_amount'),
+                func.sum(KiraTransaction.mdr).label('mdr'),
+                func.sum(KiraTransaction.settlement_amount).label('kira_settlement_amount'),
+                func.count().label('volume')
+            ).join(
+                PGTransaction,
+                KiraTransaction.transaction_id == PGTransaction.transaction_id
+            ).group_by(
+                PGTransaction.account_label,
+                func.substr(KiraTransaction.transaction_date, 1, 10),
+                KiraTransaction.payment_method,
+                KiraTransaction.merchant
+            ).all()
             
-            key = (merchant, date, channel)
-            if key not in aggregated:
-                aggregated[key] = {'amount': 0, 'volume': 0}
+            pg_results = session.query(
+                PGTransaction.account_label,
+                func.substr(PGTransaction.transaction_date, 1, 10).label('tx_date'),
+                PGTransaction.channel,
+                func.sum(PGTransaction.amount).label('pg_amount')
+            ).group_by(
+                PGTransaction.account_label,
+                func.substr(PGTransaction.transaction_date, 1, 10),
+                PGTransaction.channel
+            ).all()
             
-            aggregated[key]['amount'] += amount
-            aggregated[key]['volume'] += 1
-        
-        return self._upsert_transactions(aggregated)
+            pg_map = {}
+            for pg in pg_results:
+                channel = self._normalize_channel(pg.channel)
+                key = (pg.account_label, pg.tx_date, channel)
+                if key not in pg_map:
+                    pg_map[key] = 0
+                pg_map[key] += pg.pg_amount or 0
+            
+            transactions = {}
+            
+            for row in kira_results:
+                channel = self._normalize_channel(row.payment_method)
+                pg_key = (row.account_label, row.tx_date, channel)
+                pg_amount = pg_map.get(pg_key, 0)
+                
+                key = (row.merchant, row.account_label, row.tx_date, channel)
+                
+                if key not in transactions:
+                    transactions[key] = {
+                        'kira_amount': 0,
+                        'pg_amount': pg_amount,
+                        'mdr': 0,
+                        'kira_settlement_amount': 0,
+                        'volume': 0
+                    }
+                
+                transactions[key]['kira_amount'] += row.kira_amount or 0
+                transactions[key]['mdr'] += row.mdr or 0
+                transactions[key]['kira_settlement_amount'] += row.kira_settlement_amount or 0
+                transactions[key]['volume'] += row.volume or 0
+            
+            return self._upsert_transactions(transactions)
+            
+        finally:
+            session.close()
     
     def _normalize_channel(self, payment_method: str) -> str:
         if not payment_method:
@@ -55,8 +104,8 @@ class TransactionService:
         count = 0
         
         try:
-            for (merchant, date, channel), data in aggregated.items():
-                settlement_rule = 'T+1' if channel == 'FPX' else 'T+1'
+            for (merchant, pg_account_label, date, channel), data in aggregated.items():
+                settlement_rule = 'T+1'
                 settlement_date = calculate_settlement_date(
                     date, settlement_rule, 
                     self.public_holidays, self.add_on_holidays
@@ -65,21 +114,29 @@ class TransactionService:
                 existing = session.query(Transaction).filter(
                     and_(
                         Transaction.merchant == merchant,
+                        Transaction.pg_account_label == pg_account_label,
                         Transaction.transaction_date == date,
                         Transaction.channel == channel
                     )
                 ).first()
                 
                 if existing:
-                    existing.amount = round(data['amount'], 2)
+                    existing.kira_amount = round(data['kira_amount'], 2)
+                    existing.pg_amount = round(data['pg_amount'], 2)
+                    existing.mdr = round(data['mdr'], 2)
+                    existing.kira_settlement_amount = round(data['kira_settlement_amount'], 2)
                     existing.volume = data['volume']
                     existing.settlement_date = settlement_date
                 else:
                     new_record = Transaction(
                         merchant=merchant,
+                        pg_account_label=pg_account_label,
                         transaction_date=date,
                         channel=channel,
-                        amount=round(data['amount'], 2),
+                        kira_amount=round(data['kira_amount'], 2),
+                        pg_amount=round(data['pg_amount'], 2),
+                        mdr=round(data['mdr'], 2),
+                        kira_settlement_amount=round(data['kira_settlement_amount'], 2),
                         volume=data['volume'],
                         settlement_date=settlement_date
                     )
@@ -147,7 +204,7 @@ class TransactionService:
                 fpx_tx = tx_map.get((date_str, 'FPX'))
                 fpx_fee = fee_map.get((date_str, 'FPX'))
                 if fpx_tx:
-                    row['fpx_amount'] = round(fpx_tx.amount or 0, 2)
+                    row['fpx_amount'] = round(fpx_tx.kira_amount or 0, 2)
                     row['fpx_volume'] = fpx_tx.volume or 0
                     row['fpx_settlement_date'] = fpx_tx.settlement_date
                 if fpx_fee:
@@ -161,7 +218,7 @@ class TransactionService:
                 ewallet_tx = tx_map.get((date_str, 'EWALLET'))
                 ewallet_fee = fee_map.get((date_str, 'EWALLET'))
                 if ewallet_tx:
-                    row['ewallet_amount'] = round(ewallet_tx.amount or 0, 2)
+                    row['ewallet_amount'] = round(ewallet_tx.kira_amount or 0, 2)
                     row['ewallet_volume'] = ewallet_tx.volume or 0
                     row['ewallet_settlement_date'] = ewallet_tx.settlement_date
                 if ewallet_fee:
@@ -233,7 +290,10 @@ class TransactionService:
                             merchant=merchant,
                             transaction_date=date_str,
                             channel=channel,
-                            amount=0,
+                            kira_amount=0,
+                            pg_amount=0,
+                            mdr=0,
+                            kira_settlement_amount=0,
                             volume=0,
                             settlement_date=settlement_date
                         )

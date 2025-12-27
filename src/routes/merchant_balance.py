@@ -69,3 +69,41 @@ def list_merchants():
     except Exception as e:
         logger.error(f"Error listing merchants: {e}")
         return jsend_error(str(e))
+
+
+@bp.route('/periods', methods=['GET'])
+def list_periods():
+    try:
+        from src.core.database import get_session
+        from src.core.models import KiraTransaction
+        from sqlalchemy import func
+        
+        session = get_session()
+        
+        try:
+            results = session.query(
+                func.substr(KiraTransaction.transaction_date, 1, 7).label('ym')
+            ).distinct().all()
+            
+            periods = []
+            months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 
+                      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+            
+            for r in results:
+                if r.ym:
+                    year_month = r.ym
+                    year = year_month[:4]
+                    month_num = int(year_month[5:7])
+                    periods.append(f"{months[month_num-1]} {year}")
+            
+            periods.sort(key=lambda x: (x.split()[1], 
+                ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'].index(x.split()[0])))
+            
+            return jsend_success({'periods': periods})
+            
+        finally:
+            session.close()
+            
+    except Exception as e:
+        logger.error(f"Error listing periods: {e}")
+        return jsend_error(str(e))

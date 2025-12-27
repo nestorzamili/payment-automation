@@ -78,15 +78,19 @@ function readKiraPGManualData(sheet) {
     const pgMerchant = row[0];
     const channel = row[1];
     const pgDate = row[5];
+    const feeRate = row[10];
+    const remarks = row[15];
 
     if (!pgDate || !pgMerchant) continue;
+    
+    if (feeRate === '' && remarks === '') continue;
 
     manualData.push({
       pg_merchant: pgMerchant,
-      pg_date: pgDate,
+      pg_date: formatDate(pgDate),
       channel: channel,
-      fee_rate: row[10] !== '' ? row[10] : null,
-      remarks: row[15] !== '' ? row[15] : null,
+      fee_rate: feeRate !== '' ? feeRate : null,
+      remarks: remarks !== '' ? remarks : null,
     });
   }
 

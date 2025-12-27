@@ -101,9 +101,13 @@ class Transaction(Base):
     
     transaction_id = Column(Integer, primary_key=True, autoincrement=True)
     merchant = Column(String(100), nullable=False, index=True)
+    pg_account_label = Column(String(100), index=True)
     transaction_date = Column(String(10), nullable=False, index=True)
     channel = Column(String(20), nullable=False)
-    amount = Column(Float, default=0)
+    kira_amount = Column(Float, default=0)
+    pg_amount = Column(Float, default=0)
+    mdr = Column(Float, default=0)
+    kira_settlement_amount = Column(Float, default=0)
     volume = Column(Integer, default=0)
     settlement_date = Column(String(10))
     created_at = Column(String(19), default=_now_kl)
@@ -120,9 +124,13 @@ class Transaction(Base):
         return {
             'transaction_id': self.transaction_id,
             'merchant': self.merchant,
+            'pg_account_label': self.pg_account_label,
             'transaction_date': self.transaction_date,
             'channel': self.channel,
-            'amount': self._round(self.amount),
+            'kira_amount': self._round(self.kira_amount),
+            'pg_amount': self._round(self.pg_amount),
+            'mdr': self._round(self.mdr),
+            'kira_settlement_amount': self._round(self.kira_settlement_amount),
             'volume': self.volume,
             'settlement_date': self.settlement_date,
             'created_at': self.created_at,

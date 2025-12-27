@@ -82,6 +82,14 @@ function updateDeposit() {
 
       if (rows.length > 0) {
         sheet.getRange(7, 1, rows.length, 21).setValues(rows);
+        
+        const feeTypeRule = SpreadsheetApp.newDataValidation()
+          .requireValueInList(['percentage', 'per_volume', 'flat'], true)
+          .setAllowInvalid(false)
+          .build();
+        
+        sheet.getRange(7, 4, rows.length, 1).setDataValidation(feeTypeRule);
+        sheet.getRange(7, 11, rows.length, 1).setDataValidation(feeTypeRule);
       }
 
       SpreadsheetApp.getUi().alert('Updated ' + rows.length + ' rows');
