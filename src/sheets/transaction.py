@@ -172,7 +172,8 @@ class TransactionService:
             fees = session.query(DepositFee).filter(
                 and_(
                     DepositFee.merchant == merchant,
-                    DepositFee.transaction_date.like(f"{date_prefix}%")
+                    DepositFee.transaction_date.like(f"{date_prefix}%"),
+                    DepositFee.fee_type != 'kira_pg'
                 )
             ).all()
             

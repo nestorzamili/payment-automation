@@ -1,24 +1,26 @@
-from typing import List, Dict, Any, Set
-from calendar import monthrange
+from typing import List, Dict, Any, Set, Optional
 
 from sqlalchemy import and_
 
 from src.core.database import get_session
-from src.core.models import KiraTransaction, PGTransaction, Transaction, DepositFee
+from src.core.models import DepositFee
 from src.core.logger import get_logger
 from src.sheets.client import SheetsClient
 from src.sheets.transaction import TransactionService
-from src.utils.holiday import load_malaysia_holidays
 
 logger = get_logger(__name__)
 
 
 class DepositService:
     
-    def __init__(self, sheets_client: SheetsClient = None, add_on_holidays: Set[str] = None):
+    def __init__(
+        self, 
+        sheets_client: Optional[SheetsClient] = None, 
+        add_on_holidays: Optional[Set[str]] = None
+    ):
         self.sheets_client = sheets_client or SheetsClient()
         self.add_on_holidays = add_on_holidays or set()
-        self.tx_service = TransactionService(add_on_holidays)
+        self.tx_service = TransactionService(self.add_on_holidays)
     
     def generate_from_joined_data(self, joined_data: List[Dict[str, Any]]) -> int:
         if not joined_data:
@@ -82,29 +84,36 @@ class DepositService:
                 if not all([merchant, date, channel]):
                     continue
                 
+                fee_type = row.get('fee_type')
+                fee_rate = self._to_float(row.get('fee_rate'))
+                remarks = row.get('remarks')
+                
+                is_empty = (fee_type is None and fee_rate is None)
+                
                 existing = session.query(DepositFee).filter(
                     and_(
                         DepositFee.merchant == merchant,
                         DepositFee.transaction_date == date,
-                        DepositFee.channel == channel
+                        DepositFee.channel == channel,
+                        DepositFee.fee_type != 'kira_pg'
                     )
                 ).first()
                 
                 if existing:
-                    if 'fee_type' in row:
-                        existing.fee_type = row['fee_type']
-                    if 'fee_rate' in row:
-                        existing.fee_rate = self._to_float(row['fee_rate'])
-                    if 'remarks' in row:
-                        existing.remarks = row['remarks']
-                else:
+                    if is_empty:
+                        session.delete(existing)
+                    else:
+                        existing.fee_type = fee_type  # type: ignore
+                        existing.fee_rate = fee_rate  # type: ignore
+                        existing.remarks = remarks  # type: ignore
+                elif not is_empty:
                     new_record = DepositFee(
                         merchant=merchant,
                         transaction_date=date,
                         channel=channel,
-                        fee_type=row.get('fee_type'),
-                        fee_rate=self._to_float(row.get('fee_rate')),
-                        remarks=row.get('remarks')
+                        fee_type=fee_type,
+                        fee_rate=fee_rate,
+                        remarks=remarks
                     )
                     session.add(new_record)
                 
@@ -136,12 +145,19 @@ class DepositService:
                 return None
         return None
     
-    def upload_to_sheet(self, merchant: str, year: int, month: int, sheet_name: str = None) -> Dict[str, Any]:
+    def upload_to_sheet(
+        self, 
+        merchant: str, 
+        year: int, 
+        month: int, 
+        sheet_name: Optional[str] = None
+    ) -> Dict[str, Any]:
         from src.core.loader import load_settings
         
-        if sheet_name is None:
+        target_sheet = sheet_name
+        if target_sheet is None:
             settings = load_settings()
-            sheet_name = settings['google_sheets']['sheets']['deposit']
+            target_sheet = settings['google_sheets']['sheets']['deposit']
         
         try:
             data = self.get_deposit_data(merchant, year, month)
@@ -163,13 +179,13 @@ class DepositService:
                 row = [record.get(col, '') for col in columns]
                 rows.append(row)
             
-            self.sheets_client.write_data(sheet_name, rows, start_cell='A7')
+            self.sheets_client.write_data(target_sheet, rows, start_cell='A7')
             
             month_str = f"{['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][month-1]} {year}"
-            self.sheets_client.write_data(sheet_name, [[merchant]], start_cell='B1')
-            self.sheets_client.write_data(sheet_name, [[month_str]], start_cell='B2')
+            self.sheets_client.write_data(target_sheet, [[merchant]], start_cell='B1')
+            self.sheets_client.write_data(target_sheet, [[month_str]], start_cell='B2')
             
-            logger.info(f"Uploaded {len(rows)} deposit rows to {sheet_name}")
+            logger.info(f"Uploaded {len(rows)} deposit rows to {target_sheet}")
             return {
                 'success': True,
                 'rows_uploaded': len(rows),

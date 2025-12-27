@@ -53,7 +53,7 @@ function updateDeposit() {
     const result = JSON.parse(response.getContentText());
 
     if (result.status === 'success' && result.data && result.data.data) {
-      sheet.getRange('A7:U100').clearContent();
+      sheet.getRange('A7:U50').clearContent();
 
       const data = result.data.data;
       const rows = data.map((row) => [
@@ -83,6 +83,10 @@ function updateDeposit() {
       if (rows.length > 0) {
         sheet.getRange(7, 1, rows.length, 21).setValues(rows);
         
+        sheet.getRange(7, 1, rows.length, 1).setNumberFormat('@');
+        sheet.getRange(7, 8, rows.length, 1).setNumberFormat('@');
+        sheet.getRange(7, 15, rows.length, 1).setNumberFormat('@');
+        
         const feeTypeRule = SpreadsheetApp.newDataValidation()
           .requireValueInList(['percentage', 'per_volume', 'flat'], true)
           .setAllowInvalid(false)
@@ -91,8 +95,6 @@ function updateDeposit() {
         sheet.getRange(7, 4, rows.length, 1).setDataValidation(feeTypeRule);
         sheet.getRange(7, 11, rows.length, 1).setDataValidation(feeTypeRule);
       }
-
-      SpreadsheetApp.getUi().alert('Updated ' + rows.length + ' rows');
     }
   } catch (error) {
     SpreadsheetApp.getUi().alert('Error: ' + error.message);
@@ -109,27 +111,25 @@ function readDepositFeeData(sheet, merchant) {
 
     if (!transactionDate) continue;
 
-    if (row[3] !== '' || row[4] !== '') {
-      feeData.push({
-        merchant: merchant,
-        transaction_date: transactionDate,
-        channel: 'FPX',
-        fee_type: row[3] !== '' ? row[3] : null,
-        fee_rate: row[4] !== '' ? row[4] : null,
-        remarks: row[20] !== '' ? row[20] : null,
-      });
-    }
+    const dateStr = formatDate(transactionDate);
 
-    if (row[10] !== '' || row[11] !== '') {
-      feeData.push({
-        merchant: merchant,
-        transaction_date: transactionDate,
-        channel: 'EWALLET',
-        fee_type: row[10] !== '' ? row[10] : null,
-        fee_rate: row[11] !== '' ? row[11] : null,
-        remarks: row[20] !== '' ? row[20] : null,
-      });
-    }
+    feeData.push({
+      merchant: merchant,
+      transaction_date: dateStr,
+      channel: 'FPX',
+      fee_type: row[3] !== '' ? row[3] : null,
+      fee_rate: row[4] !== '' ? row[4] : null,
+      remarks: row[20] !== '' ? row[20] : null,
+    });
+
+    feeData.push({
+      merchant: merchant,
+      transaction_date: dateStr,
+      channel: 'EWALLET',
+      fee_type: row[10] !== '' ? row[10] : null,
+      fee_rate: row[11] !== '' ? row[11] : null,
+      remarks: row[20] !== '' ? row[20] : null,
+    });
   }
 
   return feeData;

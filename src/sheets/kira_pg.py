@@ -1,22 +1,30 @@
 import pandas as pd
-from typing import List, Dict, Any, Set
+from typing import List, Dict, Any, Optional
 
-from sqlalchemy import and_
+from sqlalchemy import and_, func
 
 from src.core.database import get_session
-from src.core.models import Transaction, DepositFee
+from src.core.models import DepositFee, KiraTransaction, PGTransaction
 from src.core.logger import get_logger
 from src.sheets.client import SheetsClient
 from src.sheets.parameters import ParameterLoader
+from src.utils.holiday import load_malaysia_holidays, calculate_settlement_date
 
 logger = get_logger(__name__)
 
 
 class KiraPGService:
     
-    def __init__(self, sheets_client: SheetsClient = None, param_loader: ParameterLoader = None):
+    def __init__(
+        self, 
+        sheets_client: Optional[SheetsClient] = None, 
+        param_loader: Optional[ParameterLoader] = None
+    ):
         self.sheets_client = sheets_client or SheetsClient()
         self.param_loader = param_loader or ParameterLoader(self.sheets_client)
+        self.param_loader.load_all_parameters()
+        self.public_holidays = load_malaysia_holidays()
+        self.add_on_holidays = self.param_loader.get_add_on_holidays()
     
     def _r(self, value):
         return round(value, 2) if value is not None else None
@@ -36,58 +44,114 @@ class KiraPGService:
                 return None
         return None
     
+    def _normalize_channel(self, channel: Optional[str]) -> str:
+        if not channel:
+            return 'EWALLET'
+        ch_upper = channel.upper().strip()
+        if ch_upper in ('FPX', 'FPXC') or 'FPX' in ch_upper:
+            return 'FPX'
+        return 'EWALLET'
+    
     def get_kira_pg_data(self) -> List[Dict[str, Any]]:
         session = get_session()
         
         try:
-            transactions = session.query(Transaction).all()
+            kira_agg = session.query(
+                PGTransaction.account_label.label('pg_account_label'),
+                func.substr(KiraTransaction.transaction_date, 1, 10).label('kira_date'),
+                KiraTransaction.payment_method,
+                func.sum(KiraTransaction.amount).label('kira_amount'),
+                func.sum(KiraTransaction.mdr).label('mdr'),
+                func.sum(KiraTransaction.settlement_amount).label('kira_settlement_amount'),
+            ).join(
+                PGTransaction,
+                KiraTransaction.transaction_id == PGTransaction.transaction_id
+            ).filter(
+                ~KiraTransaction.merchant.ilike('%test%')
+            ).group_by(
+                PGTransaction.account_label,
+                func.substr(KiraTransaction.transaction_date, 1, 10),
+                KiraTransaction.payment_method
+            ).all()
             
-            if not transactions:
-                return []
+            pg_agg = session.query(
+                PGTransaction.account_label.label('pg_account_label'),
+                func.substr(PGTransaction.transaction_date, 1, 10).label('pg_date'),
+                PGTransaction.channel,
+                func.sum(PGTransaction.amount).label('pg_amount'),
+                func.count().label('volume'),
+            ).group_by(
+                PGTransaction.account_label,
+                func.substr(PGTransaction.transaction_date, 1, 10),
+                PGTransaction.channel
+            ).all()
+            
+            kira_map: Dict[tuple, Dict[str, float]] = {}
+            for row in kira_agg:
+                channel = self._normalize_channel(row.payment_method)
+                key = (row.pg_account_label, row.kira_date, channel)
+                if key not in kira_map:
+                    kira_map[key] = {'kira_amount': 0, 'mdr': 0, 'kira_settlement_amount': 0}
+                kira_map[key]['kira_amount'] += row.kira_amount or 0
+                kira_map[key]['mdr'] += row.mdr or 0
+                kira_map[key]['kira_settlement_amount'] += row.kira_settlement_amount or 0
+            
+            pg_map: Dict[tuple, Dict[str, float]] = {}
+            for row in pg_agg:
+                channel = self._normalize_channel(row.channel)
+                key = (row.pg_account_label, row.pg_date, channel)
+                if key not in pg_map:
+                    pg_map[key] = {'pg_amount': 0, 'volume': 0}
+                pg_map[key]['pg_amount'] += row.pg_amount or 0
+                pg_map[key]['volume'] += row.volume or 0
+            
+            all_keys = set(kira_map.keys()) | set(pg_map.keys())
             
             fee_map = self._load_fee_map()
-            
             rows = []
-            for tx in transactions:
-                if not tx.pg_account_label:
-                    continue
-                if (tx.kira_amount or 0) == 0 and (tx.pg_amount or 0) == 0:
-                    continue
-                if tx.merchant and 'test' in tx.merchant.lower():
-                    continue
-                    
-                fee_key = (tx.merchant, tx.transaction_date, tx.channel)
-                fee_record = fee_map.get(fee_key)
+            
+            for key in all_keys:
+                pg_account_label, date, channel = key
                 
+                kira_data = kira_map.get(key, {'kira_amount': 0, 'mdr': 0, 'kira_settlement_amount': 0})
+                pg_data = pg_map.get(key, {'pg_amount': 0, 'volume': 0})
+                
+                if kira_data['kira_amount'] == 0 and pg_data['pg_amount'] == 0:
+                    continue
+                
+                fee_record = fee_map.get(key)
                 fee_rate = fee_record.fee_rate if fee_record else None
                 remarks = fee_record.remarks if fee_record else None
                 
                 fees = 0
                 if fee_rate is not None:
-                    fees = self._r((tx.pg_amount or 0) * fee_rate / 100)
+                    fees = self._r(pg_data['pg_amount'] * fee_rate / 100)
                 
-                settlement_amount = self._r((tx.pg_amount or 0) - fees) if fees else None
+                settlement_amount = self._r(pg_data['pg_amount'] - fees) if fees else None
+                daily_variance = self._r(kira_data['kira_amount'] - pg_data['pg_amount'])
                 
-                daily_variance = self._r((tx.kira_amount or 0) - (tx.pg_amount or 0))
+                settlement_rule = self.param_loader.get_settlement_rule(channel)
+                settlement_date = calculate_settlement_date(
+                    date, settlement_rule, self.public_holidays, self.add_on_holidays
+                )
                 
                 rows.append({
-                    'pg_merchant': tx.pg_account_label,
-                    'channel': tx.channel,
-                    'kira_amount': self._r(tx.kira_amount),
-                    'mdr': self._r(tx.mdr),
-                    'kira_settlement_amount': self._r(tx.kira_settlement_amount),
-                    'pg_date': tx.transaction_date,
-                    'amount_pg': self._r(tx.pg_amount),
-                    'transaction_count': tx.volume,
-                    'settlement_rule': 'T+1',
-                    'settlement_date': tx.settlement_date,
+                    'pg_merchant': pg_account_label,
+                    'channel': channel,
+                    'kira_amount': self._r(kira_data['kira_amount']),
+                    'mdr': self._r(kira_data['mdr']),
+                    'kira_settlement_amount': self._r(kira_data['kira_settlement_amount']),
+                    'pg_date': date,
+                    'amount_pg': self._r(pg_data['pg_amount']),
+                    'transaction_count': pg_data['volume'],
+                    'settlement_rule': settlement_rule,
+                    'settlement_date': settlement_date,
                     'fee_rate': fee_rate,
                     'fees': fees,
                     'settlement_amount': settlement_amount,
                     'daily_variance': daily_variance,
                     'cumulative_variance': 0,
                     'remarks': remarks,
-                    'merchant': tx.merchant
                 })
             
             rows.sort(key=lambda x: (x['pg_date'], x['pg_merchant'] or '', x['channel']))
@@ -103,18 +167,12 @@ class KiraPGService:
         finally:
             session.close()
     
-    def _normalize_channel(self, channel: str) -> str:
-        if not channel:
-            return 'EWALLET'
-        ch_upper = channel.upper().strip()
-        if ch_upper in ('FPX', 'FPXC') or 'FPX' in ch_upper:
-            return 'FPX'
-        return 'EWALLET'
-    
-    def _load_fee_map(self) -> Dict:
+    def _load_fee_map(self) -> Dict[tuple, DepositFee]:
         session = get_session()
         try:
-            fees = session.query(DepositFee).all()
+            fees = session.query(DepositFee).filter(
+                DepositFee.fee_type == 'kira_pg'
+            ).all()
             return {(f.merchant, f.transaction_date, f.channel): f for f in fees}
         finally:
             session.close()
@@ -124,32 +182,22 @@ class KiraPGService:
         count = 0
         
         try:
-            tx_map = {}
-            transactions = session.query(Transaction).all()
-            for tx in transactions:
-                key = (tx.pg_account_label, tx.transaction_date, tx.channel)
-                if key not in tx_map:
-                    tx_map[key] = tx.merchant
-            
             for row in manual_data:
                 pg_merchant = row.get('pg_merchant')
                 date = row.get('pg_date')
                 channel = self._normalize_channel(row.get('channel'))
                 
-                lookup_key = (pg_merchant, date, channel)
-                merchant = tx_map.get(lookup_key)
-                
-                if not merchant:
-                    logger.debug(f"No merchant found for key: {lookup_key}")
+                if not pg_merchant or not date:
                     continue
                 
-                logger.debug(f"Saving fee for {merchant}/{date}/{channel}: rate={row.get('fee_rate')}")
+                logger.debug(f"Saving fee for {pg_merchant}/{date}/{channel}: rate={row.get('fee_rate')}")
                 
                 existing = session.query(DepositFee).filter(
                     and_(
-                        DepositFee.merchant == merchant,
+                        DepositFee.merchant == pg_merchant,
                         DepositFee.transaction_date == date,
-                        DepositFee.channel == channel
+                        DepositFee.channel == channel,
+                        DepositFee.fee_type == 'kira_pg'
                     )
                 ).first()
                 
@@ -158,19 +206,20 @@ class KiraPGService:
                 
                 if existing:
                     if fee_rate_raw == 'CLEAR':
-                        existing.fee_rate = None
+                        existing.fee_rate = None  # type: ignore
                     elif fee_rate_raw is not None:
-                        existing.fee_rate = self._to_float(fee_rate_raw)
+                        existing.fee_rate = self._to_float(fee_rate_raw)  # type: ignore
                     
                     if remarks_raw == 'CLEAR':
-                        existing.remarks = None
+                        existing.remarks = None  # type: ignore
                     elif remarks_raw is not None and str(remarks_raw).strip():
-                        existing.remarks = str(remarks_raw).strip()
+                        existing.remarks = str(remarks_raw).strip()  # type: ignore
                 else:
                     new_record = DepositFee(
-                        merchant=merchant,
+                        merchant=pg_merchant,
                         transaction_date=date,
                         channel=channel,
+                        fee_type='kira_pg',
                         fee_rate=self._to_float(fee_rate_raw) if fee_rate_raw != 'CLEAR' else None,
                         remarks=str(remarks_raw).strip() if remarks_raw and remarks_raw != 'CLEAR' else None
                     )
@@ -189,21 +238,22 @@ class KiraPGService:
         finally:
             session.close()
     
-    def upload_to_sheet(self, df: pd.DataFrame, sheet_name: str = None) -> Dict[str, Any]:
+    def upload_to_sheet(self, df: pd.DataFrame, sheet_name: Optional[str] = None) -> Dict[str, Any]:
         from src.core.loader import load_settings
         
-        if sheet_name is None:
+        target_sheet = sheet_name
+        if target_sheet is None:
             settings = load_settings()
-            sheet_name = settings['google_sheets']['sheets']['kira_pg']
+            target_sheet = settings['google_sheets']['sheets']['kira_pg']
         
         try:
-            self.sheets_client.upload_dataframe(sheet_name, df, include_header=True, clear_first=True)
-            logger.info(f"Uploaded {len(df)} rows to {sheet_name}")
+            self.sheets_client.upload_dataframe(target_sheet, df, include_header=True, clear_first=True)
+            logger.info(f"Uploaded {len(df)} rows to {target_sheet}")
             
             return {
                 'success': True,
                 'rows_uploaded': len(df),
-                'sheet_name': sheet_name
+                'sheet_name': target_sheet
             }
         except Exception as e:
             logger.error(f"Failed to upload to sheet: {e}")

@@ -61,8 +61,6 @@ function updateKiraPG() {
       if (rows.length > 0) {
         sheet.getRange(4, 1, rows.length, 16).setValues(rows);
       }
-
-      SpreadsheetApp.getUi().alert('Updated ' + rows.length + ' rows');
     }
   } catch (error) {
     SpreadsheetApp.getUi().alert('Error: ' + error.message);
