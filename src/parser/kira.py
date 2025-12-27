@@ -49,7 +49,7 @@ class KiraParser:
         
         s = str(value).upper().strip()
         
-        if s == 'FPX' or 'FPX B2C' in s or 'CASA' in s:
+        if s == 'FPX' or 'FPX B2C' in s or 'CASA' in s or 'CORPORATE' in s:
             return 'FPX'
         if s == 'FPXC' or 'FPX B2B' in s:
             return 'FPXC'
