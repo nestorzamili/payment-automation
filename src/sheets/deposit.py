@@ -1,100 +1,59 @@
-import pandas as pd
 from typing import List, Dict, Any, Set
-from datetime import datetime
+from calendar import monthrange
+
+from sqlalchemy import and_
 
 from src.core.database import get_session
-from src.core.models import KiraTransaction, PGTransaction
+from src.core.models import KiraTransaction, PGTransaction, Transaction, DepositFee
 from src.core.logger import get_logger
 from src.sheets.client import SheetsClient
-from src.sheets.parameters import ParameterLoader
-from src.utils.holiday import load_malaysia_holidays, calculate_settlement_date
+from src.sheets.transaction import TransactionService
+from src.utils.holiday import load_malaysia_holidays
 
 logger = get_logger(__name__)
 
 
 class DepositService:
     
-    def __init__(self, sheets_client: SheetsClient = None, param_loader: ParameterLoader = None):
+    def __init__(self, sheets_client: SheetsClient = None, add_on_holidays: Set[str] = None):
         self.sheets_client = sheets_client or SheetsClient()
-        self.param_loader = param_loader or ParameterLoader(self.sheets_client)
+        self.add_on_holidays = add_on_holidays or set()
+        self.tx_service = TransactionService(add_on_holidays)
     
-    def generate_deposit(
-        self, 
-        joined_data: List[Dict[str, Any]],
-        public_holidays: Set[str] = None,
-        add_on_holidays: Set[str] = None
-    ) -> pd.DataFrame:
-        logger.info(f"Generating deposit from {len(joined_data)} transactions")
-        
+    def generate_from_joined_data(self, joined_data: List[Dict[str, Any]]) -> int:
         if not joined_data:
-            return pd.DataFrame()
+            return 0
         
-        if public_holidays is None or add_on_holidays is None:
-            self.param_loader.load_all_parameters()
-            add_on_holidays = self.param_loader.get_add_on_holidays()
-            public_holidays = load_malaysia_holidays()
+        count = self.tx_service.aggregate_from_joined_data(joined_data)
         
-        deposit_rows = self._calculate_deposit_rows(
-            joined_data, 
-            public_holidays, 
-            add_on_holidays
-        )
+        merchant_months = set()
+        for row in joined_data:
+            merchant = row['kira_merchant']
+            date = row['kira_date']
+            year = int(date[:4])
+            month = int(date[5:7])
+            merchant_months.add((merchant, year, month))
         
-        self._init_merchant_ledger(deposit_rows)
-        self._init_agent_ledger(deposit_rows)
+        for merchant, year, month in merchant_months:
+            self.tx_service.fill_month_dates(merchant, year, month)
+            self._init_balances(merchant, year, month)
         
-        df = pd.DataFrame(deposit_rows)
-        
-        logger.info(f"Generated {len(df)} deposit rows")
-        return df
+        logger.info(f"Generated deposit data: {count} transaction records")
+        return count
     
-    def _init_merchant_ledger(self, deposit_rows: List[Dict[str, Any]]):
+    def _init_balances(self, merchant: str, year: int, month: int):
         try:
-            from src.sheets.merchant_ledger import MerchantLedgerService
-            ledger_service = MerchantLedgerService(self.sheets_client)
-            ledger_service.init_from_deposit(deposit_rows)
+            from src.sheets.merchant_balance import MerchantBalanceService
+            from src.sheets.agent_balance import AgentBalanceService
+            
+            merchant_service = MerchantBalanceService(self.sheets_client)
+            merchant_service.init_from_transactions(merchant, year, month)
+            
+            agent_service = AgentBalanceService(self.sheets_client)
+            agent_service.init_from_transactions(merchant, year, month)
+            
         except Exception as e:
-            logger.error(f"Failed to init merchant ledger: {e}")
-    
-    def _init_agent_ledger(self, deposit_rows: List[Dict[str, Any]]):
-        try:
-            from src.sheets.agent_ledger import AgentLedgerService
-            ledger_service = AgentLedgerService(self.sheets_client)
-            ledger_service.init_from_deposit(deposit_rows)
-        except Exception as e:
-            logger.error(f"Failed to init agent ledger: {e}")
-    
-    def _get_joined_transactions(self, from_date: str, to_date: str) -> List[Dict[str, Any]]:
-        session = get_session()
-        
-        try:
-            results = session.query(
-                KiraTransaction,
-                PGTransaction
-            ).join(
-                PGTransaction,
-                KiraTransaction.transaction_id == PGTransaction.transaction_id
-            ).filter(
-                KiraTransaction.transaction_date >= from_date,
-                KiraTransaction.transaction_date <= to_date + ' 23:59:59'
-            ).all()
-            
-            joined_data = []
-            for kira, pg in results:
-                joined_data.append({
-                    'transaction_id': kira.transaction_id,
-                    'kira_amount': kira.amount,
-                    'kira_merchant': kira.merchant,
-                    'kira_payment_method': kira.payment_method,
-                    'kira_date': kira.transaction_date[:10],
-                    'pg_account_label': pg.account_label
-                })
-            
-            logger.info(f"Found {len(joined_data)} joined transactions")
-            return joined_data
-            
-        finally:
-            session.close()
+            logger.error(f"Failed to init balances: {e}")
     
     def _normalize_channel(self, payment_method: str) -> str:
         if not payment_method:
@@ -102,77 +61,82 @@ class DepositService:
         
         pm_upper = payment_method.upper().strip()
         
-        if pm_upper == 'FPX' or 'FPX B2C' in pm_upper:
+        if pm_upper in ('FPX', 'FPXC') or 'FPX' in pm_upper:
             return 'FPX'
-        if pm_upper == 'FPXC' or 'FPX B2B' in pm_upper:
-            return 'FPXC'
         
         return 'EWALLET'
     
-    def _calculate_deposit_rows(
-        self, 
-        joined_data: List[Dict[str, Any]],
-        public_holidays: Set[str],
-        add_on_holidays: Set[str]
-    ) -> List[Dict[str, Any]]:
-        
-        df = pd.DataFrame(joined_data)
-        
-        df['channel'] = df['kira_payment_method'].apply(self._normalize_channel)
-        
-        grouped = df.groupby(['kira_date', 'kira_merchant', 'channel', 'pg_account_label']).agg({
-            'kira_amount': 'sum',
-            'transaction_id': 'count'
-        }).reset_index()
-        
-        grouped = grouped.rename(columns={'transaction_id': 'transaction_count'})
-        
-        deposit_rows = []
-        
-        for _, row in grouped.iterrows():
-            kira_date = row['kira_date']
-            merchant = row['kira_merchant']
-            channel = row['channel']
-            pg_merchant = row['pg_account_label']
-            kira_amount = row['kira_amount']
-            
-            settlement_rule = self.param_loader.get_settlement_rule(channel.lower())
-            
-            settlement_date = calculate_settlement_date(
-                kira_date,
-                settlement_rule,
-                public_holidays,
-                add_on_holidays
-            )
-            
-            kira_date_parsed = datetime.strptime(kira_date, '%Y-%m-%d')
-            fee_percent = self.param_loader.get_deposit_fee(
-                kira_date_parsed.year,
-                kira_date_parsed.month,
-                merchant,
-                channel
-            )
-            
-            fees = round(kira_amount * (fee_percent / 100), 2)
-            gross_amount = round(kira_amount - fees, 2)
-            
-            deposit_rows.append({
-                'Merchant': merchant,
-                'Channel': channel,
-                'PG Merchant': pg_merchant,
-                'Transaction Date': kira_date,
-                'Settlement Rule': settlement_rule,
-                'Settlement Date': settlement_date,
-                'Kira Amount': round(kira_amount, 2),
-                'Fees': fees,
-                'Gross Amount (Deposit)': gross_amount
-            })
-        
-        deposit_rows.sort(key=lambda x: (x['Settlement Date'], x['Merchant'], x['Channel']))
-        
-        return deposit_rows
+    def get_deposit_data(self, merchant: str, year: int, month: int) -> List[Dict[str, Any]]:
+        return self.tx_service.get_monthly_data(merchant, year, month)
     
-    def upload_to_sheet(self, df: pd.DataFrame, sheet_name: str = None) -> Dict[str, Any]:
+    def save_fee_inputs(self, fee_data: List[Dict[str, Any]]) -> int:
+        session = get_session()
+        count = 0
+        
+        try:
+            for row in fee_data:
+                merchant = row.get('merchant')
+                date = row.get('transaction_date')
+                channel = row.get('channel')
+                
+                if not all([merchant, date, channel]):
+                    continue
+                
+                existing = session.query(DepositFee).filter(
+                    and_(
+                        DepositFee.merchant == merchant,
+                        DepositFee.transaction_date == date,
+                        DepositFee.channel == channel
+                    )
+                ).first()
+                
+                if existing:
+                    if 'fee_type' in row:
+                        existing.fee_type = row['fee_type']
+                    if 'fee_rate' in row:
+                        existing.fee_rate = self._to_float(row['fee_rate'])
+                    if 'remarks' in row:
+                        existing.remarks = row['remarks']
+                else:
+                    new_record = DepositFee(
+                        merchant=merchant,
+                        transaction_date=date,
+                        channel=channel,
+                        fee_type=row.get('fee_type'),
+                        fee_rate=self._to_float(row.get('fee_rate')),
+                        remarks=row.get('remarks')
+                    )
+                    session.add(new_record)
+                
+                count += 1
+            
+            session.commit()
+            logger.info(f"Saved {count} fee inputs")
+            return count
+            
+        except Exception as e:
+            session.rollback()
+            logger.error(f"Failed to save fee inputs: {e}")
+            raise
+        finally:
+            session.close()
+    
+    def _to_float(self, value):
+        if value is None:
+            return None
+        if isinstance(value, (int, float)):
+            return float(value)
+        if isinstance(value, str):
+            value = value.strip()
+            if not value:
+                return None
+            try:
+                return float(value)
+            except ValueError:
+                return None
+        return None
+    
+    def upload_to_sheet(self, merchant: str, year: int, month: int, sheet_name: str = None) -> Dict[str, Any]:
         from src.core.loader import load_settings
         
         if sheet_name is None:
@@ -180,17 +144,40 @@ class DepositService:
             sheet_name = settings['google_sheets']['sheets']['deposit']
         
         try:
-            self.sheets_client.upload_dataframe(sheet_name, df, include_header=True, clear_first=True)
-            logger.info(f"Uploaded {len(df)} rows to {sheet_name}")
+            data = self.get_deposit_data(merchant, year, month)
             
+            if not data:
+                return {'success': False, 'error': 'No data to upload'}
+            
+            columns = [
+                'transaction_date',
+                'fpx_amount', 'fpx_volume', 'fpx_fee_type', 'fpx_fee_rate', 'fpx_fee_amount', 'fpx_gross', 'fpx_settlement_date',
+                'ewallet_amount', 'ewallet_volume', 'ewallet_fee_type', 'ewallet_fee_rate', 'ewallet_fee_amount', 'ewallet_gross', 'ewallet_settlement_date',
+                'total_amount', 'total_fees',
+                'available_fpx', 'available_ewallet', 'available_total',
+                'remarks'
+            ]
+            
+            rows = []
+            for record in data:
+                row = [record.get(col, '') for col in columns]
+                rows.append(row)
+            
+            self.sheets_client.write_data(sheet_name, rows, start_cell='A7')
+            
+            month_str = f"{['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][month-1]} {year}"
+            self.sheets_client.write_data(sheet_name, [[merchant]], start_cell='B1')
+            self.sheets_client.write_data(sheet_name, [[month_str]], start_cell='B2')
+            
+            logger.info(f"Uploaded {len(rows)} deposit rows to {sheet_name}")
             return {
                 'success': True,
-                'rows_uploaded': len(df),
-                'sheet_name': sheet_name
+                'rows_uploaded': len(rows),
+                'sheet_name': sheet_name,
+                'merchant': merchant,
+                'month': month_str
             }
+            
         except Exception as e:
             logger.error(f"Failed to upload to sheet: {e}")
-            return {
-                'success': False,
-                'error': str(e)
-            }
+            return {'success': False, 'error': str(e)}

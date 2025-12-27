@@ -16,8 +16,6 @@ class ParameterLoader:
         self.sheet_name = self.settings['google_sheets']['sheets']['parameters']
         
         self._settlement_rules: Optional[Dict[str, str]] = None
-        self._fees: Optional[pd.DataFrame] = None
-        self._deposit_rules: Optional[pd.DataFrame] = None
         self._add_on_holidays: Optional[Set[str]] = None
         self._loaded = False
     
@@ -34,24 +32,15 @@ class ParameterLoader:
             if 'SETTLEMENT_RULES' in sections:
                 self._settlement_rules = self._parse_settlement_rules(sections['SETTLEMENT_RULES'])
             
-            if 'FEES' in sections:
-                self._fees = self._parse_fees(sections['FEES'])
-            
             if 'ADD_ON_HOLIDAYS' in sections:
                 self._add_on_holidays = self._parse_add_on_holidays(sections['ADD_ON_HOLIDAYS'])
             
-            if 'DEPOSIT_RULES' in sections:
-                self._deposit_rules = self._parse_deposit_rules(sections['DEPOSIT_RULES'])
-            
             self._loaded = True
             rules_count = len(self._settlement_rules) if self._settlement_rules is not None else 0
-            fees_count = len(self._fees) if self._fees is not None else 0
-            logger.info(f"Loaded parameters: {rules_count} rules, {fees_count} fees")
+            logger.info(f"Loaded parameters: {rules_count} settlement rules")
             
             return {
                 'settlement_rules': self._settlement_rules,
-                'fees': self._fees,
-                'deposit_rules': self._deposit_rules,
                 'add_on_holidays': self._add_on_holidays
             }
             
@@ -101,23 +90,6 @@ class ParameterLoader:
         
         return rules
     
-    def _parse_fees(self, data: List[List[str]]) -> pd.DataFrame:
-        if not data:
-            return pd.DataFrame()
-        
-        header = data[0]
-        rows = data[1:]
-        df = pd.DataFrame(rows, columns=header)
-        
-        if 'Year' in df.columns:
-            df['Year'] = pd.to_numeric(df['Year'], errors='coerce')
-        if 'Month' in df.columns:
-            df['Month'] = pd.to_numeric(df['Month'], errors='coerce')
-        if 'Fee_Value' in df.columns:
-            df['Fee_Value'] = pd.to_numeric(df['Fee_Value'], errors='coerce')
-        
-        return df
-    
     def _parse_add_on_holidays(self, data: List[List[str]]) -> Set[str]:
         holidays = set()
         
@@ -149,35 +121,6 @@ class ParameterLoader:
         logger.warning(f"No settlement rule for {channel}, using T+1")
         return 'T+1'
     
-    def get_fee_config(self, year: int, month: int, pg: str, payment_type: str) -> Dict[str, Any]:
-        self._ensure_loaded()
-        
-        default = {'fee_type': 'percent', 'fee_value': 0.0}
-        
-        if self._fees is None or self._fees.empty:
-            logger.warning(f"No fees loaded, using default for {year}/{month}/{pg}/{payment_type}")
-            return default
-        
-        pg_lower = pg.lower() if pg else ''
-        payment_type_lower = payment_type.lower() if payment_type else ''
-        
-        matching = self._fees[
-            (self._fees['Year'] == year) &
-            (self._fees['Month'] == month) &
-            (self._fees['PG'].str.lower() == pg_lower) &
-            (self._fees['Payment_Type'].str.lower() == payment_type_lower)
-        ]
-        
-        if matching.empty:
-            logger.warning(f"No fee config for {year}/{month}/{pg}/{payment_type}, using default")
-            return default
-        
-        row = matching.iloc[0]
-        return {
-            'fee_type': str(row['Fee_Type']).strip(),
-            'fee_value': float(row['Fee_Value']) if pd.notna(row['Fee_Value']) else 0.0
-        }
-    
     def get_add_on_holidays(self) -> Set[str]:
         self._ensure_loaded()
         
@@ -185,71 +128,3 @@ class ParameterLoader:
             return set()
         
         return self._add_on_holidays
-    
-    def _parse_deposit_rules(self, data: List[List[str]]) -> pd.DataFrame:
-        if not data:
-            return pd.DataFrame()
-        
-        header = data[0]
-        rows = data[1:]
-        df = pd.DataFrame(rows, columns=header)
-        
-        if 'Year' in df.columns:
-            df['Year'] = pd.to_numeric(df['Year'], errors='coerce')
-        if 'Month' in df.columns:
-            df['Month'] = pd.to_numeric(df['Month'], errors='coerce')
-        
-        for col in ['FPX', 'ewallet', 'FPXC', 'Withdrawal']:
-            if col in df.columns:
-                df[col] = df[col].astype(str).str.replace('%', '').str.strip()
-                df[col] = pd.to_numeric(df[col], errors='coerce')
-        
-        return df
-    
-    def get_deposit_fee(self, year: int, month: int, merchant: str, channel: str) -> float:
-        self._ensure_loaded()
-        
-        if self._deposit_rules is None or self._deposit_rules.empty:
-            logger.warning(f"No deposit rules loaded for {year}/{month}/{merchant}/{channel}")
-            return 0.0
-        
-        matching = self._deposit_rules[
-            (self._deposit_rules['Year'] == year) &
-            (self._deposit_rules['Month'] == month) &
-            (self._deposit_rules['Merchant'] == merchant)
-        ]
-        
-        if matching.empty:
-            logger.warning(f"No deposit rule for {year}/{month}/{merchant}/{channel}")
-            return 0.0
-        
-        row = matching.iloc[0]
-        channel_col = channel if channel in ['FPX', 'FPXC'] else 'ewallet'
-        
-        if channel_col in row:
-            return float(row[channel_col]) if pd.notna(row[channel_col]) else 0.0
-        
-        return 0.0
-    
-    def get_withdrawal_rate(self, year: int, month: int, merchant: str) -> float:
-        self._ensure_loaded()
-        
-        if self._deposit_rules is None or self._deposit_rules.empty:
-            logger.warning(f"No deposit rules loaded for {year}/{month}/{merchant}")
-            return 0.0
-        
-        matching = self._deposit_rules[
-            (self._deposit_rules['Year'] == year) &
-            (self._deposit_rules['Month'] == month) &
-            (self._deposit_rules['Merchant'] == merchant)
-        ]
-        
-        if matching.empty:
-            logger.warning(f"No withdrawal rate for {year}/{month}/{merchant}")
-            return 0.0
-        
-        row = matching.iloc[0]
-        if 'Withdrawal' in row:
-            return float(row['Withdrawal']) / 100 if pd.notna(row['Withdrawal']) else 0.0
-        
-        return 0.0

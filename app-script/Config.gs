@@ -3,6 +3,7 @@ const CONFIG = {
   API_KEY: 'api-key',
   MERCHANT_LEDGER: 'Merchants Balance & Settlement Ledger',
   AGENT_LEDGER: 'Agents Balance & Settlement Ledger',
-  SUMMARY_SHEET: 'Summary',
+  KIRA_PG_SHEET: 'Kira PG',
   DEPOSIT_SHEET: 'Deposit',
+  SUMMARY_SHEET: 'Summary',
 };

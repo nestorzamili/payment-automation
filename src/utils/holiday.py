@@ -12,7 +12,15 @@ KL_TZ = ZoneInfo('Asia/Kuala_Lumpur')
 MALAYSIA_HOLIDAYS_URL = "https://calendar.google.com/calendar/ical/en.malaysia%23holiday@group.v.calendar.google.com/public/basic.ics"
 
 
+_holidays_cache = None
+
+
 def load_malaysia_holidays() -> Set[str]:
+    global _holidays_cache
+    
+    if _holidays_cache is not None:
+        return _holidays_cache
+    
     logger.info("Loading Malaysia public holidays")
     
     try:
@@ -37,7 +45,8 @@ def load_malaysia_holidays() -> Set[str]:
                 current_date = None
         
         logger.info(f"Loaded {len(holidays)} holidays")
-        return holidays
+        _holidays_cache = holidays
+        return _holidays_cache
         
     except Exception as e:
         logger.error(f"Error loading holidays: {e}")

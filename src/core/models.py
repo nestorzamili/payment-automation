@@ -96,24 +96,91 @@ class PGTransaction(Base):
         }
 
 
-class MerchantLedger(Base):
-    __tablename__ = 'merchant_ledger'
-
-    merchant_ledger_id = Column(Integer, primary_key=True, autoincrement=True)
+class Transaction(Base):
+    __tablename__ = 'transactions'
+    
+    transaction_id = Column(Integer, primary_key=True, autoincrement=True)
     merchant = Column(String(100), nullable=False, index=True)
     transaction_date = Column(String(10), nullable=False, index=True)
+    channel = Column(String(20), nullable=False)
+    amount = Column(Float, default=0)
+    volume = Column(Integer, default=0)
+    settlement_date = Column(String(10))
+    created_at = Column(String(19), default=_now_kl)
+    updated_at = Column(String(19), default=_now_kl, onupdate=_now_kl)
     
-    fpx = Column(Float, default=0)
-    fee_fpx = Column(Float, default=0)
-    gross_fpx = Column(Float, default=0)
-    ewallet = Column(Float, default=0)
-    fee_ewallet = Column(Float, default=0)
-    gross_ewallet = Column(Float, default=0)
-    total_gross = Column(Float, default=0)
-    total_fee = Column(Float, default=0)
-    available_settlement_amount_fpx = Column(Float, default=0)
-    available_settlement_amount_ewallet = Column(Float, default=0)
-    available_settlement_amount_total = Column(Float, default=0)
+    __table_args__ = (
+        {'sqlite_autoincrement': True},
+    )
+    
+    def _round(self, value):
+        return round(value, 2) if value is not None else None
+    
+    def to_dict(self) -> dict:
+        return {
+            'transaction_id': self.transaction_id,
+            'merchant': self.merchant,
+            'transaction_date': self.transaction_date,
+            'channel': self.channel,
+            'amount': self._round(self.amount),
+            'volume': self.volume,
+            'settlement_date': self.settlement_date,
+            'created_at': self.created_at,
+            'updated_at': self.updated_at
+        }
+
+
+class DepositFee(Base):
+    __tablename__ = 'deposit_fees'
+    
+    deposit_fee_id = Column(Integer, primary_key=True, autoincrement=True)
+    merchant = Column(String(100), nullable=False, index=True)
+    transaction_date = Column(String(10), nullable=False, index=True)
+    channel = Column(String(20), nullable=False)
+    fee_type = Column(String(20))
+    fee_rate = Column(Float)
+    remarks = Column(Text)
+    updated_at = Column(String(19), default=_now_kl, onupdate=_now_kl)
+    
+    __table_args__ = (
+        {'sqlite_autoincrement': True},
+    )
+    
+    def _round(self, value):
+        return round(value, 2) if value is not None else None
+    
+    def calculate_fee(self, amount: float, volume: int) -> float:
+        if not self.fee_type or self.fee_rate is None:
+            return 0
+        
+        if self.fee_type == 'percentage':
+            return round(amount * (self.fee_rate / 100), 2)
+        elif self.fee_type == 'per_volume':
+            return round(volume * self.fee_rate, 2)
+        elif self.fee_type == 'flat':
+            return round(self.fee_rate, 2)
+        
+        return 0
+    
+    def to_dict(self) -> dict:
+        return {
+            'deposit_fee_id': self.deposit_fee_id,
+            'merchant': self.merchant,
+            'transaction_date': self.transaction_date,
+            'channel': self.channel,
+            'fee_type': self.fee_type,
+            'fee_rate': self._round(self.fee_rate),
+            'remarks': self.remarks,
+            'updated_at': self.updated_at
+        }
+
+
+class MerchantBalance(Base):
+    __tablename__ = 'merchant_balances'
+
+    merchant_balance_id = Column(Integer, primary_key=True, autoincrement=True)
+    merchant = Column(String(100), nullable=False, index=True)
+    transaction_date = Column(String(10), nullable=False, index=True)
     
     settlement_fund = Column(Float)
     settlement_charges = Column(Float)
@@ -136,20 +203,9 @@ class MerchantLedger(Base):
 
     def to_dict(self) -> dict:
         return {
-            'merchant_ledger_id': self.merchant_ledger_id,
+            'merchant_balance_id': self.merchant_balance_id,
             'merchant': self.merchant,
             'transaction_date': self.transaction_date,
-            'fpx': self._round(self.fpx),
-            'fee_fpx': self._round(self.fee_fpx),
-            'gross_fpx': self._round(self.gross_fpx),
-            'ewallet': self._round(self.ewallet),
-            'fee_ewallet': self._round(self.fee_ewallet),
-            'gross_ewallet': self._round(self.gross_ewallet),
-            'total_gross': self._round(self.total_gross),
-            'total_fee': self._round(self.total_fee),
-            'available_settlement_amount_fpx': self._round(self.available_settlement_amount_fpx),
-            'available_settlement_amount_ewallet': self._round(self.available_settlement_amount_ewallet),
-            'available_settlement_amount_total': self._round(self.available_settlement_amount_total),
             'settlement_fund': self._round(self.settlement_fund),
             'settlement_charges': self._round(self.settlement_charges),
             'withdrawal_amount': self._round(self.withdrawal_amount),
@@ -163,30 +219,15 @@ class MerchantLedger(Base):
         }
 
 
-class AgentLedger(Base):
-    __tablename__ = 'agent_ledger'
+class AgentBalance(Base):
+    __tablename__ = 'agent_balances'
     
-    agent_ledger_id = Column(Integer, primary_key=True, autoincrement=True)
+    agent_balance_id = Column(Integer, primary_key=True, autoincrement=True)
     merchant = Column(String(100), nullable=False, index=True)
     transaction_date = Column(String(10), nullable=False, index=True)
     
     commission_rate_fpx = Column(Float)
-    fpx = Column(Float)
-    kira_amount_fpx = Column(Float, default=0)
-    
     commission_rate_ewallet = Column(Float)
-    ewallet = Column(Float)
-    kira_amount_ewallet = Column(Float, default=0)
-    
-    gross_amount = Column(Float)
-    
-    settlement_kira_fpx = Column(Float, default=0)
-    settlement_kira_ewallet = Column(Float, default=0)
-    
-    available_settlement_fpx = Column(Float)
-    available_settlement_ewallet = Column(Float)
-    available_settlement_total = Column(Float)
-    
     withdrawal_amount = Column(Float)
     balance = Column(Float)
     
@@ -201,19 +242,11 @@ class AgentLedger(Base):
 
     def to_dict(self) -> dict:
         return {
-            'agent_ledger_id': self.agent_ledger_id,
+            'agent_balance_id': self.agent_balance_id,
             'merchant': self.merchant,
             'transaction_date': self.transaction_date,
             'commission_rate_fpx': self._round(self.commission_rate_fpx),
-            'fpx': self._round(self.fpx),
-            'kira_amount_fpx': self._round(self.kira_amount_fpx),
             'commission_rate_ewallet': self._round(self.commission_rate_ewallet),
-            'ewallet': self._round(self.ewallet),
-            'kira_amount_ewallet': self._round(self.kira_amount_ewallet),
-            'gross_amount': self._round(self.gross_amount),
-            'available_settlement_fpx': self._round(self.available_settlement_fpx),
-            'available_settlement_ewallet': self._round(self.available_settlement_ewallet),
-            'available_settlement_total': self._round(self.available_settlement_total),
             'withdrawal_amount': self._round(self.withdrawal_amount),
             'balance': self._round(self.balance),
             'updated_at': self.updated_at

@@ -2,7 +2,7 @@ from typing import Dict, Any, List
 from sqlalchemy import func, and_
 
 from src.core.database import get_session
-from src.core.models import MerchantLedger, AgentLedger
+from src.core.models import MerchantBalance, AgentBalance, Transaction
 from src.core.logger import get_logger
 
 logger = get_logger(__name__)
@@ -27,17 +27,14 @@ class LedgerSummaryService:
             date_prefix = f"{year}-"
             
             results = session.query(
-                MerchantLedger.merchant,
-                func.substr(MerchantLedger.transaction_date, 6, 2).label('month'),
-                func.sum(
-                    func.coalesce(MerchantLedger.fpx, 0) + 
-                    func.coalesce(MerchantLedger.ewallet, 0)
-                ).label('total')
+                Transaction.merchant,
+                func.substr(Transaction.transaction_date, 6, 2).label('month'),
+                func.sum(func.coalesce(Transaction.amount, 0)).label('total')
             ).filter(
-                MerchantLedger.transaction_date.like(f"{date_prefix}%")
+                Transaction.transaction_date.like(f"{date_prefix}%")
             ).group_by(
-                MerchantLedger.merchant,
-                func.substr(MerchantLedger.transaction_date, 6, 2)
+                Transaction.merchant,
+                func.substr(Transaction.transaction_date, 6, 2)
             ).all()
             
             return self._format_results(results)
@@ -52,14 +49,14 @@ class LedgerSummaryService:
             date_prefix = f"{year}-"
             
             results = session.query(
-                AgentLedger.merchant,
-                func.substr(AgentLedger.transaction_date, 6, 2).label('month'),
-                func.sum(func.coalesce(AgentLedger.available_settlement_total, 0)).label('total')
+                Transaction.merchant,
+                func.substr(Transaction.transaction_date, 6, 2).label('month'),
+                func.sum(func.coalesce(Transaction.amount, 0)).label('total')
             ).filter(
-                AgentLedger.transaction_date.like(f"{date_prefix}%")
+                Transaction.transaction_date.like(f"{date_prefix}%")
             ).group_by(
-                AgentLedger.merchant,
-                func.substr(AgentLedger.transaction_date, 6, 2)
+                Transaction.merchant,
+                func.substr(Transaction.transaction_date, 6, 2)
             ).all()
             
             return self._format_results(results)
@@ -74,14 +71,14 @@ class LedgerSummaryService:
             date_prefix = f"{year}-"
             
             results = session.query(
-                MerchantLedger.merchant,
-                func.substr(MerchantLedger.transaction_date, 6, 2).label('month'),
-                func.max(MerchantLedger.payout_pool_balance).label('total')
+                MerchantBalance.merchant,
+                func.substr(MerchantBalance.transaction_date, 6, 2).label('month'),
+                func.max(MerchantBalance.payout_pool_balance).label('total')
             ).filter(
-                MerchantLedger.transaction_date.like(f"{date_prefix}%")
+                MerchantBalance.transaction_date.like(f"{date_prefix}%")
             ).group_by(
-                MerchantLedger.merchant,
-                func.substr(MerchantLedger.transaction_date, 6, 2)
+                MerchantBalance.merchant,
+                func.substr(MerchantBalance.transaction_date, 6, 2)
             ).all()
             
             return self._format_results(results)

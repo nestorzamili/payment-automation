@@ -1,14 +1,14 @@
-function updateAgentLedger() {
+function updateAgentBalance() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const ledgerSheet = ss.getSheetByName(CONFIG.AGENT_LEDGER);
+  const sheet = ss.getSheetByName(CONFIG.AGENT_LEDGER);
 
-  if (!ledgerSheet) {
-    SpreadsheetApp.getUi().alert('Agent Ledger sheet not found');
+  if (!sheet) {
+    SpreadsheetApp.getUi().alert('Agent Balance sheet not found');
     return;
   }
 
-  const merchant = ledgerSheet.getRange('B1').getValue();
-  const period = ledgerSheet.getRange('B2').getValue();
+  const merchant = sheet.getRange('B1').getValue();
+  const period = sheet.getRange('B2').getValue();
 
   if (!merchant || !period) {
     SpreadsheetApp.getUi().alert('Please select Merchant and Period');
@@ -21,7 +21,7 @@ function updateAgentLedger() {
     return;
   }
 
-  const manualData = readAgentManualData(ledgerSheet);
+  const manualData = readAgentManualData(sheet);
 
   const payload = {
     merchant: merchant,
@@ -40,7 +40,7 @@ function updateAgentLedger() {
 
   try {
     const response = UrlFetchApp.fetch(
-      `${CONFIG.BASE_URL}/ledger/agent/update`,
+      `${CONFIG.BASE_URL}/balance/agent/update`,
       options,
     );
 
@@ -53,27 +53,28 @@ function updateAgentLedger() {
     const result = JSON.parse(response.getContentText());
 
     if (result.status === 'success' && result.data && result.data.data) {
-      ledgerSheet.getRange('A5:M100').clearContent();
+      sheet.getRange('A5:N100').clearContent();
 
-      const ledgerData = result.data.data;
-      const rows = ledgerData.map((row) => [
-        row.agent_ledger_id,
+      const data = result.data.data;
+      const rows = data.map((row) => [
+        row.agent_balance_id,
         row.transaction_date,
+        row.kira_amount_fpx ?? '',
         row.commission_rate_fpx ?? '',
-        row.fpx ?? '',
+        row.fpx_commission ?? '',
+        row.kira_amount_ewallet ?? '',
         row.commission_rate_ewallet ?? '',
-        row.ewallet ?? '',
+        row.ewallet_commission ?? '',
         row.gross_amount ?? '',
-        row.available_settlement_fpx ?? '',
-        row.available_settlement_ewallet ?? '',
-        row.available_settlement_total ?? '',
+        row.available_fpx ?? '',
+        row.available_ewallet ?? '',
+        row.available_total ?? '',
         row.withdrawal_amount ?? '',
         row.balance ?? '',
-        row.updated_at ?? '',
       ]);
 
       if (rows.length > 0) {
-        ledgerSheet.getRange(5, 1, rows.length, 13).setValues(rows);
+        sheet.getRange(5, 1, rows.length, 14).setValues(rows);
       }
     }
   } catch (error) {
@@ -82,7 +83,7 @@ function updateAgentLedger() {
 }
 
 function readAgentManualData(sheet) {
-  const data = sheet.getRange('A5:M100').getValues();
+  const data = sheet.getRange('A5:N100').getValues();
   const manualData = [];
 
   for (let i = 0; i < data.length; i++) {
@@ -91,10 +92,10 @@ function readAgentManualData(sheet) {
     if (!id) continue;
 
     manualData.push({
-      id: id,
-      commission_rate_fpx: row[2] !== '' ? row[2] : 'CLEAR',
-      commission_rate_ewallet: row[4] !== '' ? row[4] : 'CLEAR',
-      withdrawal_amount: row[10] !== '' ? row[10] : 'CLEAR',
+      agent_balance_id: id,
+      commission_rate_fpx: row[3] !== '' ? row[3] : 'CLEAR',
+      commission_rate_ewallet: row[6] !== '' ? row[6] : 'CLEAR',
+      withdrawal_amount: row[12] !== '' ? row[12] : 'CLEAR',
     });
   }
 
