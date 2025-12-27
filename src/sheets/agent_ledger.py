@@ -1,29 +1,46 @@
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Set
 from sqlalchemy import and_
 
 from src.core.database import get_session
 from src.core.models import AgentLedger
 from src.core.logger import get_logger
 from src.sheets.client import SheetsClient
+from src.sheets.base_ledger import BaseLedgerService
 
 logger = get_logger(__name__)
 
 
-class AgentLedgerService:
+class AgentLedgerService(BaseLedgerService):
     
     def __init__(self, sheets_client: SheetsClient = None):
-        self.sheets_client = sheets_client or SheetsClient()
+        super().__init__(sheets_client)
     
-    def _r(self, value):
-        return round(value, 2) if value is not None else None
+    def _get_existing_dates(self, session, merchant: str, year: int, month: int) -> Set[str]:
+        """Get existing dates from database for a merchant/month."""
+        date_prefix = f"{year}-{month:02d}"
+        records = session.query(AgentLedger.transaction_date).filter(
+            and_(
+                AgentLedger.merchant == merchant,
+                AgentLedger.transaction_date.like(f"{date_prefix}%")
+            )
+        ).all()
+        return {r[0] for r in records}
     
-    def init_from_deposit(self, deposit_rows: List[Dict[str, Any]]) -> int:
-        if not deposit_rows:
-            return 0
-        
-        aggregated = self._aggregate_deposit_data(deposit_rows)
-        settlement_map = self._build_settlement_map(deposit_rows)
-        return self._upsert_ledger_rows(aggregated, settlement_map)
+    def _create_zero_row(self, session, merchant: str, date_str: str):
+        """Create a ledger row with zero values for a date."""
+        new_record = AgentLedger(
+            merchant=merchant,
+            transaction_date=date_str,
+            kira_amount_fpx=0,
+            kira_amount_ewallet=0,
+            settlement_kira_fpx=0,
+            settlement_kira_ewallet=0
+        )
+        session.add(new_record)
+    
+    def _get_settlement_amount(self, row: Dict[str, Any]) -> float:
+        """Get kira amount for agent commission calculation."""
+        return row['Kira Amount']
     
     def _aggregate_deposit_data(self, deposit_rows: List[Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
         result = {}
@@ -49,24 +66,6 @@ class AgentLedgerService:
                 result[key]['kira_amount_ewallet'] += kira_amount
         
         return result
-    
-    def _build_settlement_map(self, deposit_rows: List[Dict[str, Any]]) -> Dict:
-        settlement_map = {}
-        
-        for row in deposit_rows:
-            merchant = row['Merchant']
-            settlement_date = row['Settlement Date']
-            channel = row['Channel'].upper()
-            kira_amount = row['Kira Amount']
-            
-            channel_type = 'fpx' if channel in ('FPX', 'FPXC') else 'ewallet'
-            key = (merchant, settlement_date, channel_type)
-            
-            if key not in settlement_map:
-                settlement_map[key] = 0
-            settlement_map[key] += kira_amount
-        
-        return settlement_map
     
     def _upsert_ledger_rows(self, aggregated: Dict, settlement_map: Dict) -> int:
         session = get_session()
@@ -168,21 +167,6 @@ class AgentLedgerService:
         finally:
             session.close()
     
-    def _to_float(self, value):
-        if value is None:
-            return None
-        if isinstance(value, (int, float)):
-            return float(value)
-        if isinstance(value, str):
-            value = value.strip()
-            if not value:
-                return None
-            try:
-                return float(value)
-            except ValueError:
-                return None
-        return None
-
     def save_manual_data(self, manual_data: List[Dict[str, Any]]) -> int:
         session = get_session()
         count = 0

@@ -1,4 +1,4 @@
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Set
 from sqlalchemy import and_
 
 from src.core.database import get_session
@@ -6,26 +6,45 @@ from src.core.models import MerchantLedger
 from src.core.logger import get_logger
 from src.sheets.client import SheetsClient
 from src.sheets.parameters import ParameterLoader
+from src.sheets.base_ledger import BaseLedgerService
 
 logger = get_logger(__name__)
 
 
-class MerchantLedgerService:
+class MerchantLedgerService(BaseLedgerService):
     
     def __init__(self, sheets_client: SheetsClient = None):
-        self.sheets_client = sheets_client or SheetsClient()
+        super().__init__(sheets_client)
         self.param_loader = ParameterLoader(self.sheets_client)
     
-    def _r(self, value):
-        return round(value, 2) if value is not None else None
+    def _get_existing_dates(self, session, merchant: str, year: int, month: int) -> Set[str]:
+        """Get existing dates from database for a merchant/month."""
+        date_prefix = f"{year}-{month:02d}"
+        records = session.query(MerchantLedger.transaction_date).filter(
+            and_(
+                MerchantLedger.merchant == merchant,
+                MerchantLedger.transaction_date.like(f"{date_prefix}%")
+            )
+        ).all()
+        return {r[0] for r in records}
     
-    def init_from_deposit(self, deposit_rows: List[Dict[str, Any]]) -> int:
-        if not deposit_rows:
-            return 0
-        
-        aggregated = self._aggregate_deposit_data(deposit_rows)
-        settlement_map = self._build_settlement_map(deposit_rows)
-        return self._upsert_ledger_rows(aggregated, settlement_map)
+    def _create_zero_row(self, session, merchant: str, date_str: str):
+        """Create a ledger row with zero values for a date."""
+        new_record = MerchantLedger(
+            merchant=merchant,
+            transaction_date=date_str,
+            fpx=0, fee_fpx=0, gross_fpx=0,
+            ewallet=0, fee_ewallet=0, gross_ewallet=0,
+            total_gross=0, total_fee=0,
+            available_settlement_amount_fpx=0,
+            available_settlement_amount_ewallet=0,
+            available_settlement_amount_total=0
+        )
+        session.add(new_record)
+    
+    def _get_settlement_amount(self, row: Dict[str, Any]) -> float:
+        """Get gross amount for settlement calculation."""
+        return row['Gross Amount (Deposit)']
     
     def _aggregate_deposit_data(self, deposit_rows: List[Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
         result = {}
@@ -57,24 +76,6 @@ class MerchantLedgerService:
                 result[key]['gross_ewallet'] += gross
         
         return result
-    
-    def _build_settlement_map(self, deposit_rows: List[Dict[str, Any]]) -> Dict:
-        settlement_map = {}
-        
-        for row in deposit_rows:
-            merchant = row['Merchant']
-            settlement_date = row['Settlement Date']
-            channel = row['Channel'].upper()
-            gross = row['Gross Amount (Deposit)']
-            
-            channel_type = 'fpx' if channel in ('FPX', 'FPXC') else 'ewallet'
-            key = (merchant, settlement_date, channel_type)
-            
-            if key not in settlement_map:
-                settlement_map[key] = 0
-            settlement_map[key] += gross
-        
-        return settlement_map
     
     def _upsert_ledger_rows(self, aggregated: Dict, settlement_map: Dict) -> int:
         session = get_session()
@@ -175,21 +176,6 @@ class MerchantLedgerService:
         finally:
             session.close()
     
-    def _to_float(self, value):
-        if value is None:
-            return None
-        if isinstance(value, (int, float)):
-            return float(value)
-        if isinstance(value, str):
-            value = value.strip()
-            if not value:
-                return None
-            try:
-                return float(value)
-            except ValueError:
-                return None
-        return None
-
     def save_manual_data(self, manual_data: List[Dict[str, Any]]) -> int:
         session = get_session()
         count = 0
