@@ -9,7 +9,7 @@ from sqlalchemy.dialects.sqlite import insert
 from src.core.database import get_session
 from src.core.models import PGTransaction
 from src.core.logger import get_logger
-from src.parser.helper import get_parsed_files, record_parsed_file, normalize_channel
+from src.parser.helper import get_parsed_files, start_parse_job, complete_parse_job, fail_parse_job, normalize_channel
 
 logger = get_logger(__name__)
 
@@ -149,11 +149,10 @@ class M1Parser:
         finally:
             session.close()
     
-    def process_directory(self, directory: Path, account_label: str) -> dict:
+    def process_directory(self, directory: Path, account_label: str, run_id: str = None) -> dict:
         excel_files = list(directory.glob('*.xlsx'))
         excel_files = [f for f in excel_files if not f.name.startswith('~$')]
         
-        # Skip already-parsed files
         parsed_files = get_parsed_files(account_label, 'm1')
         new_files = [f for f in excel_files if f.name not in parsed_files]
         
@@ -166,21 +165,28 @@ class M1Parser:
         }
         
         for file_path in new_files:
-            logger.info(f"Processing: {file_path.name}")
-            transactions = self.parse_file(file_path, account_label)
+            job_id = start_parse_job(file_path.name, account_label, 'm1', run_id)
             
-            if transactions:
-                saved = self.save_transactions(transactions)
-                result['files_processed'] += 1
-                result['total_transactions'] += saved
+            try:
+                logger.info(f"Processing: {file_path.name}")
+                transactions = self.parse_file(file_path, account_label)
                 
-                tx_type = transactions[0]['transaction_type']
-                channel = transactions[0]['channel']
-                key = f"{tx_type}:{channel}"
-                result['by_type'][key] = result['by_type'].get(key, 0) + saved
-                
-                # Record the parsed file
-                record_parsed_file(file_path.name, account_label, 'm1', saved)
+                if transactions:
+                    saved = self.save_transactions(transactions)
+                    result['files_processed'] += 1
+                    result['total_transactions'] += saved
+                    
+                    tx_type = transactions[0]['transaction_type']
+                    channel = transactions[0]['channel']
+                    key = f"{tx_type}:{channel}"
+                    result['by_type'][key] = result['by_type'].get(key, 0) + saved
+                    
+                    complete_parse_job(job_id, saved)
+                else:
+                    complete_parse_job(job_id, 0)
+            except Exception as e:
+                fail_parse_job(job_id, str(e))
+                logger.error(f"Error processing {file_path.name}: {e}")
         
         return result
 

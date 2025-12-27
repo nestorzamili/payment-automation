@@ -1,14 +1,14 @@
 from datetime import datetime
 from pathlib import Path
 from typing import List
-
+import warnings
 import pandas as pd
 from sqlalchemy.dialects.sqlite import insert
 
 from src.core.database import get_session
 from src.core.models import KiraTransaction
 from src.core.logger import get_logger
-from src.parser.helper import get_parsed_files, record_parsed_file
+from src.parser.helper import get_parsed_files, start_parse_job, complete_parse_job, fail_parse_job
 
 logger = get_logger(__name__)
 
@@ -16,7 +16,9 @@ logger = get_logger(__name__)
 class KiraParser:
     
     def parse_file(self, file_path: Path) -> List[dict]:
-        df = pd.read_excel(file_path)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", UserWarning)
+            df = pd.read_excel(file_path, engine='openpyxl')
         transactions = []
         
         for _, row in df.iterrows():
@@ -112,11 +114,10 @@ class KiraParser:
         finally:
             session.close()
     
-    def process_directory(self, directory: Path) -> dict:
+    def process_directory(self, directory: Path, run_id: str = None) -> dict:
         excel_files = list(directory.glob('*.xlsx'))
         excel_files = [f for f in excel_files if not f.name.startswith('~$')]
         
-        # Skip already-parsed files
         parsed_files = get_parsed_files(platform='kira')
         new_files = [f for f in excel_files if f.name not in parsed_files]
         
@@ -127,16 +128,22 @@ class KiraParser:
         }
         
         for file_path in new_files:
-            logger.info(f"Processing: {file_path.name}")
-            transactions = self.parse_file(file_path)
+            job_id = start_parse_job(file_path.name, 'kira', 'kira', run_id)
             
-            if transactions:
-                saved = self.save_transactions(transactions)
-                result['files_processed'] += 1
-                result['total_transactions'] += saved
+            try:
+                logger.info(f"Processing: {file_path.name}")
+                transactions = self.parse_file(file_path)
                 
-                # Record the parsed file
-                record_parsed_file(file_path.name, None, 'kira', saved)
+                if transactions:
+                    saved = self.save_transactions(transactions)
+                    result['files_processed'] += 1
+                    result['total_transactions'] += saved
+                    complete_parse_job(job_id, saved)
+                else:
+                    complete_parse_job(job_id, 0)
+            except Exception as e:
+                fail_parse_job(job_id, str(e))
+                logger.error(f"Error processing {file_path.name}: {e}")
         
         return result
 

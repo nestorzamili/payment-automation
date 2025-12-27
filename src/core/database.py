@@ -7,7 +7,14 @@ from src.core.loader import PROJECT_ROOT
 DATABASE_PATH = PROJECT_ROOT / 'data' / 'app.db'
 DATABASE_PATH.parent.mkdir(parents=True, exist_ok=True)
 
-engine = create_engine(f'sqlite:///{DATABASE_PATH}', echo=False)
+engine = create_engine(
+    f'sqlite:///{DATABASE_PATH}',
+    echo=False,
+    connect_args={
+        'check_same_thread': False,
+        'timeout': 30
+    }
+)
 session_factory = sessionmaker(bind=engine)
 Session = scoped_session(session_factory)
 
@@ -24,3 +31,4 @@ def get_session():
 
 
 init_db()
+

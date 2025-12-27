@@ -8,9 +8,10 @@ bp = Blueprint('jobs', __name__)
 logger = get_logger(__name__)
 
 
-@bp.route('/jobs/<int:job_id>', methods=['GET'])
-def get_job_status(job_id: int):
-    job = job_manager.get_job(job_id)
-    if not job:
-        return jsend_fail(f'Job not found: {job_id}', 404)
-    return jsend_success(job)
+@bp.route('/jobs/<run_id>', methods=['GET'])
+def get_jobs_by_run(run_id: str):
+    result = job_manager.get_jobs_by_run_id(run_id)
+    if not result:
+        return jsend_fail(f'No jobs found for run_id: {run_id}', 404)
+    return jsend_success(result)
+

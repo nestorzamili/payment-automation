@@ -23,7 +23,8 @@ class JobManager:
 
     def create_job(
         self, 
-        job_type: str, 
+        job_type: str,
+        run_id: str = None,
         platform: str = None,
         account_label: str = None,
         from_date: str = None,
@@ -34,6 +35,7 @@ class JobManager:
         session = get_session()
         try:
             job = Job(
+                run_id=run_id,
                 job_type=job_type,
                 platform=platform,
                 account_label=account_label,
@@ -54,9 +56,7 @@ class JobManager:
         self, 
         job_id: int, 
         status: str, 
-        files: List[str] = None,
-        duration_seconds: float = None,
-        error: str = None
+        desc: str = None
     ):
         session = get_session()
         try:
@@ -64,21 +64,42 @@ class JobManager:
             if job:
                 job.status = status
                 job.updated_at = datetime.now(KL_TZ).strftime('%Y-%m-%d %H:%M:%S')
-                if files is not None:
-                    job.files = files
-                if duration_seconds is not None:
-                    job.duration_seconds = duration_seconds
-                if error is not None:
-                    job.error = error
+                if desc is not None:
+                    job.desc = desc
                 session.commit()
         finally:
             session.close()
 
-    def get_job(self, job_id: int) -> dict | None:
+    def get_jobs_by_run_id(self, run_id: str) -> dict | None:
         session = get_session()
         try:
-            job = session.query(Job).filter_by(job_id=job_id).first()
-            return job.to_dict() if job else None
+            jobs = session.query(Job).filter_by(run_id=run_id).all()
+            if not jobs:
+                return None
+            
+            running = sum(1 for j in jobs if j.status == 'running')
+            completed = sum(1 for j in jobs if j.status == 'completed')
+            failed = sum(1 for j in jobs if j.status == 'failed')
+            total_transactions = sum(j.transactions_count or 0 for j in jobs)
+            
+            # Sum transactions per platform
+            platforms = {}
+            for j in jobs:
+                if j.platform:
+                    platforms[j.platform] = platforms.get(j.platform, 0) + (j.transactions_count or 0)
+            
+            # Status is 'running' if any job is still running
+            status = 'running' if running > 0 else 'completed'
+            
+            return {
+                'status': status,
+                'run_id': run_id,
+                'total_jobs': len(jobs),
+                'completed': completed,
+                'failed': failed,
+                'total_transactions': total_transactions,
+                'platforms': platforms
+            }
         finally:
             session.close()
 
@@ -96,23 +117,18 @@ class JobManager:
     def run_in_background(self, job_id: int, func: Callable, *args, **kwargs):
         def wrapper():
             self.update_job(job_id, 'running')
-            start_time = datetime.now(KL_TZ)
             try:
-                result = func(*args, **kwargs)
-                duration = (datetime.now(KL_TZ) - start_time).total_seconds()
-                self.update_job(
-                    job_id, 
-                    'completed', 
-                    files=result.get('files', []),
-                    duration_seconds=duration
-                )
+                func(*args, **kwargs)
+                self.update_job(job_id, 'completed')
             except Exception as e:
-                duration = (datetime.now(KL_TZ) - start_time).total_seconds()
                 error_msg = str(e).split('Call log:')[0].strip()
-                self.update_job(job_id, 'failed', error=error_msg, duration_seconds=duration)
+                self.update_job(job_id, 'failed', desc=error_msg)
 
         thread = threading.Thread(target=wrapper, daemon=True)
         thread.start()
 
 
 job_manager = JobManager()
+
+
+

@@ -1,5 +1,6 @@
+import re
 from datetime import datetime
-from typing import Set, Optional
+from typing import Set, Optional, Tuple
 
 from sqlalchemy import and_
 
@@ -29,6 +30,14 @@ def normalize_channel(channel: str) -> str:
     return channel
 
 
+def extract_date_range_from_filename(filename: str) -> Tuple[Optional[str], Optional[str]]:
+    pattern = r'(\d{4}-\d{2}-\d{2})_(\d{4}-\d{2}-\d{2})'
+    match = re.search(pattern, filename)
+    if match:
+        return match.group(1), match.group(2)
+    return None, None
+
+
 def get_parsed_files(account_label: str = None, platform: str = None) -> Set[str]:
     session = get_session()
     parsed_files = set()
@@ -50,38 +59,84 @@ def get_parsed_files(account_label: str = None, platform: str = None) -> Set[str
         jobs = query.all()
         
         for job in jobs:
-            if job.files:
-                for f in job.files:
-                    parsed_files.add(f)
+            if job.filename:
+                parsed_files.add(job.filename)
         
         return parsed_files
     finally:
         session.close()
 
 
-def record_parsed_file(filename: str, account_label: str, platform: str, 
-                       transactions_count: int = 0) -> Job:
+def start_parse_job(filename: str, account_label: str, platform: str, run_id: str = None) -> int:
     session = get_session()
     now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    from_date, to_date = extract_date_range_from_filename(filename)
     
     try:
         job = Job(
+            run_id=run_id,
             job_type='parse',
             platform=platform,
             account_label=account_label,
-            status='completed',
-            files=[filename],
+            from_date=from_date,
+            to_date=to_date,
+            status='running',
+            filename=filename,
             created_at=now,
             updated_at=now
         )
         session.add(job)
         session.commit()
+        session.refresh(job)
         
-        logger.debug(f"Recorded parsed file: {filename} ({platform})")
-        return job
+        logger.debug(f"Started parse job: {filename} ({platform})")
+        return job.job_id
     except Exception as e:
         session.rollback()
-        logger.error(f"Failed to record parsed file: {e}")
+        logger.error(f"Failed to start parse job: {e}")
         raise
     finally:
         session.close()
+
+
+def complete_parse_job(job_id: int, transactions_count: int):
+    session = get_session()
+    now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    
+    try:
+        job = session.query(Job).filter_by(job_id=job_id).first()
+        if job:
+            job.status = 'completed'
+            job.transactions_count = transactions_count
+            job.updated_at = now
+            session.commit()
+            logger.debug(f"Completed parse job: {job_id} ({transactions_count} txn)")
+    except Exception as e:
+        session.rollback()
+        logger.error(f"Failed to complete parse job: {e}")
+        raise
+    finally:
+        session.close()
+
+
+def fail_parse_job(job_id: int, error: str):
+    session = get_session()
+    now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    
+    try:
+        job = session.query(Job).filter_by(job_id=job_id).first()
+        if job:
+            job.status = 'failed'
+            job.desc = error
+            job.updated_at = now
+            session.commit()
+            logger.debug(f"Failed parse job: {job_id}")
+    except Exception as e:
+        session.rollback()
+        logger.error(f"Failed to update parse job as failed: {e}")
+        raise
+    finally:
+        session.close()
+
+
+

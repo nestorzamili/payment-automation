@@ -1,3 +1,6 @@
+import uuid
+from threading import Thread
+
 from flask import Blueprint
 
 from src.core import load_accounts
@@ -6,40 +9,30 @@ from src.core.logger import get_logger
 from src.parser.m1 import M1Parser
 from src.parser.axai import AxaiParser
 from src.parser.kira import KiraParser
-from src.utils import jsend_success, jsend_error
+from src.utils import jsend_success
 
 bp = Blueprint('parse', __name__)
 logger = get_logger(__name__)
 
+_parse_running = False
 
-@bp.route('/parse', methods=['POST'])
-def parse_all():
-    results = {
-        'kira': None,
-        'pg': {}
-    }
-    errors = []
+
+def run_parse_job(run_id: str):
+    global _parse_running
     
     kira_dir = PROJECT_ROOT / 'data' / 'kira'
     if kira_dir.exists():
         try:
             parser = KiraParser()
-            result = parser.process_directory(kira_dir)
-            results['kira'] = result
+            result = parser.process_directory(kira_dir, run_id=run_id)
             logger.info(f"Kira: parsed {result['total_transactions']} transactions")
         except Exception as e:
-            errors.append({'platform': 'kira', 'error': str(e)})
             logger.error(f"Kira parse error: {e}")
-    else:
-        results['kira'] = {'skipped': True, 'reason': 'no data directory'}
     
     accounts = load_accounts()
     pg_accounts = [a for a in accounts if a['platform'] in ('m1', 'axai', 'fiuu')]
     
-    parsers = {
-        'm1': M1Parser,
-        'axai': AxaiParser,
-    }
+    parsers = {'m1': M1Parser, 'axai': AxaiParser}
     
     for account in pg_accounts:
         label = account['label']
@@ -47,36 +40,35 @@ def parse_all():
         data_dir = PROJECT_ROOT / 'data' / label
         
         if not data_dir.exists():
-            results['pg'][label] = {'skipped': True, 'reason': 'no data directory'}
             continue
         
         if platform not in parsers:
-            results['pg'][label] = {'skipped': True, 'reason': f'parser not implemented for {platform}'}
             continue
         
         try:
             parser = parsers[platform]()
-            result = parser.process_directory(data_dir, label)
-            results['pg'][label] = result
+            result = parser.process_directory(data_dir, label, run_id=run_id)
             logger.info(f"{label}: parsed {result['total_transactions']} transactions")
         except Exception as e:
-            errors.append({'label': label, 'platform': platform, 'error': str(e)})
             logger.error(f"{label} parse error: {e}")
     
-    summary = {
-        'kira_transactions': results['kira'].get('total_transactions', 0) if isinstance(results['kira'], dict) and 'total_transactions' in results['kira'] else 0,
-        'pg_transactions': sum(r.get('total_transactions', 0) for r in results['pg'].values() if isinstance(r, dict) and 'total_transactions' in r),
-        'accounts_processed': len([r for r in results['pg'].values() if isinstance(r, dict) and not r.get('skipped')]),
-        'accounts_skipped': len([r for r in results['pg'].values() if isinstance(r, dict) and r.get('skipped')])
-    }
+    _parse_running = False
+    logger.info(f"Parse job completed (run_id: {run_id})")
+
+
+@bp.route('/parse', methods=['POST'])
+def parse_all():
+    global _parse_running
     
-    response = {
-        'summary': summary,
-        'details': results
-    }
+    if _parse_running:
+        return jsend_success({'status': 'running', 'message': 'Parse job already running'}, 200)
     
-    if errors:
-        response['errors'] = errors
-        return jsend_error('Completed with errors', 500, response)
+    _parse_running = True
+    run_id = str(uuid.uuid4())
+    thread = Thread(target=run_parse_job, args=(run_id,), daemon=True)
+    thread.start()
     
-    return jsend_success(response)
+    logger.info(f"Parse job started (run_id: {run_id})")
+    return jsend_success({'run_id': run_id, 'message': 'Parse job started'}, 202)
+
+
