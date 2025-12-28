@@ -107,7 +107,7 @@ class SSHTunnel:
             '-N',
             '-T',
             '-R', f'127.0.0.1:{remote_port}:127.0.0.1:{local_port}',
-            '-o', 'ExitOnForwardFailure=yes',
+            '-o', 'ExitOnForwardFailure=no',
             '-o', 'ServerAliveInterval=30',
             '-o', 'ServerAliveCountMax=3',
             '-o', 'StrictHostKeyChecking=accept-new',
