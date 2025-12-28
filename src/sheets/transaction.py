@@ -94,10 +94,10 @@ class TransactionService:
                 row = {
                     'transaction_date': date_str,
                     'fpx_amount': 0, 'fpx_volume': 0, 'fpx_settlement_date': fpx_settlement_date,
-                    'fpx_fee_type': None, 'fpx_fee_rate': None, 'fpx_fee_amount': 0, 'fpx_gross': 0,
+                    'fpx_fee_type': '', 'fpx_fee_rate': None, 'fpx_fee_amount': 0, 'fpx_gross': 0,
                     'fpx_kira_settlement': 0,
                     'ewallet_amount': 0, 'ewallet_volume': 0, 'ewallet_settlement_date': ewallet_settlement_date,
-                    'ewallet_fee_type': None, 'ewallet_fee_rate': None, 'ewallet_fee_amount': 0, 'ewallet_gross': 0,
+                    'ewallet_fee_type': '', 'ewallet_fee_rate': None, 'ewallet_fee_amount': 0, 'ewallet_gross': 0,
                     'ewallet_kira_settlement': 0,
                     'total_amount': 0, 'total_fees': 0,
                     'available_fpx': 0, 'available_ewallet': 0, 'available_total': 0,

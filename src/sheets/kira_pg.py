@@ -21,8 +21,11 @@ class KiraPGService:
         param_loader: Optional[ParameterLoader] = None
     ):
         self.sheets_client = sheets_client or SheetsClient()
-        self.param_loader = param_loader or ParameterLoader(self.sheets_client)
-        self.param_loader.load_all_parameters()
+        if param_loader:
+            self.param_loader = param_loader
+        else:
+            self.param_loader = ParameterLoader(self.sheets_client)
+            self.param_loader.load_all_parameters()
         self.public_holidays = load_malaysia_holidays()
         self.add_on_holidays = self.param_loader.get_add_on_holidays()
     
@@ -80,6 +83,11 @@ class KiraPGService:
                 PGTransaction.channel,
                 func.sum(PGTransaction.amount).label('pg_amount'),
                 func.count().label('volume'),
+            ).join(
+                KiraTransaction,
+                PGTransaction.transaction_id == KiraTransaction.transaction_id
+            ).filter(
+                ~KiraTransaction.merchant.ilike('%test%')
             ).group_by(
                 PGTransaction.account_label,
                 func.substr(PGTransaction.transaction_date, 1, 10),
