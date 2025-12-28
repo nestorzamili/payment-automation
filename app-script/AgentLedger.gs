@@ -40,7 +40,7 @@ function updateAgentLedger() {
 
   try {
     const response = UrlFetchApp.fetch(
-      `${CONFIG.BASE_URL}/balance/agent/update`,
+      `${CONFIG.BASE_URL}/agent-ledger`,
       options,
     );
 

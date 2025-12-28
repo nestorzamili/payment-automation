@@ -30,7 +30,7 @@ function updateSummary() {
 
   try {
     const response = UrlFetchApp.fetch(
-      `${CONFIG.BASE_URL}/ledger/summary`,
+      `${CONFIG.BASE_URL}/summary`,
       options,
     );
 

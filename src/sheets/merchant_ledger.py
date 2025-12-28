@@ -75,10 +75,7 @@ class MerchantLedgerService:
         
         try:
             tx_data = tx_service.get_monthly_data(merchant, year, month)
-            available_map = {row['transaction_date']: row['available_total'] for row in tx_data}
-            
-            self._recalculate_balances(session, merchant, available_map)
-            session.commit()
+            tx_map = {row['transaction_date']: row for row in tx_data}
             
             date_prefix = f"{year}-{month:02d}"
             ledgers = session.query(MerchantLedger).filter(
@@ -87,6 +84,16 @@ class MerchantLedgerService:
                     MerchantLedger.transaction_date.like(f"{date_prefix}%")
                 )
             ).order_by(MerchantLedger.transaction_date).all()
+            
+            for ledger in ledgers:
+                tx_row = tx_map.get(ledger.transaction_date)
+                if tx_row:
+                    ledger.available_fpx = tx_row['available_fpx']
+                    ledger.available_ewallet = tx_row['available_ewallet']
+                    ledger.available_total = tx_row['available_total']
+            
+            self._recalculate_balances(session, merchant)
+            session.commit()
             
             ledger_map = {lg.transaction_date: lg for lg in ledgers}
             
@@ -218,7 +225,7 @@ class MerchantLedgerService:
         finally:
             session.close()
     
-    def _recalculate_balances(self, session, merchant: str, available_map: Dict[str, float] = None):
+    def _recalculate_balances(self, session, merchant: str):
         rows = session.query(MerchantLedger).filter(
             MerchantLedger.merchant == merchant
         ).order_by(MerchantLedger.transaction_date).all()
@@ -227,9 +234,7 @@ class MerchantLedgerService:
         prev_available_balance = 0
         
         for row in rows:
-            available_total = 0
-            if available_map and row.transaction_date in available_map:
-                available_total = available_map[row.transaction_date]
+            available_total = row.available_total or 0
             
             has_payout_activity = (
                 row.withdrawal_amount is not None 
@@ -310,3 +315,40 @@ class MerchantLedgerService:
         except Exception as e:
             logger.error(f"Failed to upload to sheet: {e}")
             return {'success': False, 'error': str(e)}
+    
+    @staticmethod
+    def list_merchants() -> List[str]:
+        from src.core.models import KiraTransaction
+        session = get_session()
+        try:
+            merchants = session.query(KiraTransaction.merchant).distinct().all()
+            return sorted([m[0] for m in merchants if m[0]])
+        finally:
+            session.close()
+    
+    @staticmethod
+    def list_periods() -> List[str]:
+        from sqlalchemy import func
+        from src.core.models import KiraTransaction
+        
+        session = get_session()
+        try:
+            results = session.query(
+                func.substr(KiraTransaction.transaction_date, 1, 7).label('ym')
+            ).distinct().all()
+            
+            months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 
+                      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+            
+            periods = []
+            for r in results:
+                if r.ym:
+                    year = r.ym[:4]
+                    month_num = int(r.ym[5:7])
+                    periods.append(f"{months[month_num-1]} {year}")
+            
+            periods.sort(key=lambda x: (x.split()[1], months.index(x.split()[0])))
+            return periods
+        finally:
+            session.close()
+

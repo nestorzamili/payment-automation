@@ -3,96 +3,14 @@ from threading import Thread
 
 from flask import Blueprint
 
-from src.core import load_accounts
-from src.core.loader import PROJECT_ROOT
 from src.core.logger import get_logger
-from src.parser.m1 import M1Parser
-from src.parser.axai import AxaiParser
-from src.parser.kira import KiraParser
-from src.parser.fiuu import FiuuParser
+from src.core.parser import run_parse_job
 from src.utils import jsend_success
 
 bp = Blueprint('parse', __name__)
 logger = get_logger(__name__)
 
 _parse_running = False
-
-
-def run_parse_job(run_id: str):
-    global _parse_running
-    
-    kira_dir = PROJECT_ROOT / 'data' / 'kira'
-    if kira_dir.exists():
-        try:
-            parser = KiraParser()
-            result = parser.process_directory(kira_dir, run_id=run_id)
-            logger.info(f"Kira: parsed {result['total_transactions']} transactions")
-        except Exception as e:
-            logger.error(f"Kira parse error: {e}")
-    
-    accounts = load_accounts()
-    pg_accounts = [a for a in accounts if a['platform'] in ('m1', 'axai', 'fiuu')]
-    
-    parsers = {'m1': M1Parser, 'axai': AxaiParser, 'fiuu': FiuuParser}
-    
-    for account in pg_accounts:
-        label = account['label']
-        platform = account['platform']
-        data_dir = PROJECT_ROOT / 'data' / label
-        
-        if not data_dir.exists():
-            continue
-        
-        if platform not in parsers:
-            continue
-        
-        try:
-            parser = parsers[platform]()
-            result = parser.process_directory(data_dir, label, run_id=run_id)
-            logger.info(f"{label}: parsed {result['total_transactions']} transactions")
-        except Exception as e:
-            logger.error(f"{label} parse error: {e}")
-    
-    try:
-        from src.core.database import get_session
-        from src.core.models import KiraTransaction
-        from src.sheets.merchant_ledger import MerchantLedgerService
-        from src.sheets.agent_ledger import AgentLedgerService
-        from sqlalchemy import func, distinct
-        
-        session = get_session()
-        
-        results = session.query(
-            KiraTransaction.merchant,
-            func.substr(KiraTransaction.transaction_date, 1, 7).label('ym')
-        ).distinct().all()
-        
-        session.close()
-        
-        merchant_service = MerchantLedgerService()
-        agent_service = AgentLedgerService()
-        
-        periods = set()
-        for merchant, ym in results:
-            if merchant and ym:
-                year = int(ym[:4])
-                month = int(ym[5:7])
-                periods.add((merchant, year, month))
-        
-        for merchant, year, month in periods:
-            try:
-                merchant_service.init_from_transactions(merchant, year, month)
-                agent_service.init_from_transactions(merchant, year, month)
-            except Exception as e:
-                logger.error(f"Failed to init ledger for {merchant} {year}-{month}: {e}")
-        
-        logger.info(f"Initialized ledgers for {len(periods)} merchant-periods")
-        
-    except Exception as e:
-        logger.error(f"Failed to initialize ledgers: {e}")
-    
-    _parse_running = False
-    logger.info(f"Parse job completed (run_id: {run_id})")
 
 
 @bp.route('/parse', methods=['POST'])
@@ -104,10 +22,16 @@ def parse_all():
     
     _parse_running = True
     run_id = str(uuid.uuid4())
-    thread = Thread(target=run_parse_job, args=(run_id,), daemon=True)
+    
+    def job_wrapper(rid):
+        global _parse_running
+        try:
+            run_parse_job(rid)
+        finally:
+            _parse_running = False
+    
+    thread = Thread(target=job_wrapper, args=(run_id,), daemon=True)
     thread.start()
     
     logger.info(f"Parse job started (run_id: {run_id})")
     return jsend_success({'run_id': run_id, 'message': 'Parse job started'}, 202)
-
-

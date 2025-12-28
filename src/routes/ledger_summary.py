@@ -8,25 +8,25 @@ logger = get_logger(__name__)
 
 bp = Blueprint('ledger_summary', __name__)
 
+VIEW_TYPE_MAP = {
+    'Merchants': 'merchants',
+    'Agents': 'agents',
+    'Payout Pool Balance': 'payout_pool'
+}
 
-@bp.route('/ledger/summary', methods=['POST'])
+
+@bp.route('/summary', methods=['POST'])
 def get_ledger_summary():
     try:
-        data = request.get_json()
+        data = request.get_json() or {}
         
         year = data.get('year')
         view_type = data.get('view_type')
         
         if not year or not view_type:
-            return jsend_fail({'error': 'year and view_type required'}, 400)
+            return jsend_fail({'message': 'year and view_type are required'}, 400)
         
-        view_type_map = {
-            'Merchants': 'merchants',
-            'Agents': 'agents',
-            'Payout Pool Balance': 'payout_pool'
-        }
-        
-        normalized_view = view_type_map.get(view_type, view_type.lower())
+        normalized_view = VIEW_TYPE_MAP.get(view_type, view_type.lower())
         
         logger.info(f"Loading summary for: {year} - {view_type}")
         

@@ -23,7 +23,7 @@ function updateKiraPG() {
 
   try {
     const response = UrlFetchApp.fetch(
-      `${CONFIG.BASE_URL}/kira-pg/update`,
+      `${CONFIG.BASE_URL}/kira-pg`,
       options,
     );
 

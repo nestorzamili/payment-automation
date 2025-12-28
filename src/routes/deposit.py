@@ -1,17 +1,15 @@
 from flask import Blueprint, request
 
 from src.sheets.deposit import DepositService
-from src.sheets.client import SheetsClient
-from src.sheets.parameters import ParameterLoader
 from src.core.logger import get_logger
 from src.utils.response import jsend_success, jsend_fail, jsend_error
 
 logger = get_logger(__name__)
 
-bp = Blueprint('deposit', __name__, url_prefix='/deposit')
+bp = Blueprint('deposit', __name__)
 
 
-@bp.route('/update', methods=['POST'])
+@bp.route('/deposit', methods=['POST'])
 def update_deposit():
     try:
         data = request.get_json() or {}
@@ -24,13 +22,7 @@ def update_deposit():
         if not merchant or not year or not month:
             return jsend_fail({'message': 'merchant, year, and month are required'}, 400)
         
-        sheets_client = SheetsClient()
-        param_loader = ParameterLoader(sheets_client)
-        param_loader.load_all_parameters()
-        
-        add_on_holidays = param_loader.get_add_on_holidays()
-        
-        service = DepositService(sheets_client, add_on_holidays, param_loader)
+        service = DepositService()
         
         if fee_data:
             logger.info(f"Saving {len(fee_data)} deposit fee inputs")
@@ -39,7 +31,7 @@ def update_deposit():
         deposit_data = service.get_deposit_data(merchant, year, month)
         
         return jsend_success({
-            'message': f'Deposit updated successfully',
+            'message': 'Deposit updated successfully',
             'rows': len(deposit_data),
             'data': deposit_data
         })

@@ -40,7 +40,7 @@ function updateDeposit() {
 
   try {
     const response = UrlFetchApp.fetch(
-      `${CONFIG.BASE_URL}/deposit/update`,
+      `${CONFIG.BASE_URL}/deposit`,
       options,
     );
 
@@ -102,7 +102,7 @@ function updateDeposit() {
 }
 
 function readDepositFeeData(sheet, merchant) {
-  const data = sheet.getRange('A7:U100').getValues();
+  const data = sheet.getRange('A7:U50').getValues();
   const feeData = [];
 
   for (let i = 0; i < data.length; i++) {

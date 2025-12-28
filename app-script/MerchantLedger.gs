@@ -40,7 +40,7 @@ function updateMerchantLedger() {
 
   try {
     const response = UrlFetchApp.fetch(
-      `${CONFIG.BASE_URL}/balance/merchant/update`,
+      `${CONFIG.BASE_URL}/merchant-ledger`,
       options,
     );
 

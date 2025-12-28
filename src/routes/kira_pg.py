@@ -1,27 +1,20 @@
 from flask import Blueprint, request
 
 from src.sheets.kira_pg import KiraPGService
-from src.sheets.client import SheetsClient
-from src.sheets.parameters import ParameterLoader
 from src.core.logger import get_logger
-from src.utils.response import jsend_success, jsend_fail, jsend_error
+from src.utils.response import jsend_success, jsend_error
 
 logger = get_logger(__name__)
 
-bp = Blueprint('kira_pg', __name__, url_prefix='/kira-pg')
+bp = Blueprint('kira_pg', __name__)
 
-
-@bp.route('/update', methods=['POST'])
+@bp.route('/kira-pg', methods=['POST'])
 def update_kira_pg():
     try:
         data = request.get_json() or {}
         manual_data = data.get('manual_data', [])
         
-        sheets_client = SheetsClient()
-        param_loader = ParameterLoader(sheets_client)
-        param_loader.load_all_parameters()
-        
-        service = KiraPGService(sheets_client, param_loader)
+        service = KiraPGService()
         
         if manual_data:
             logger.info(f"Saving {len(manual_data)} Kira PG manual inputs")
@@ -30,7 +23,7 @@ def update_kira_pg():
         kira_pg_data = service.get_kira_pg_data()
         
         return jsend_success({
-            'message': f'Kira PG updated successfully',
+            'message': 'Kira PG updated successfully',
             'rows': len(kira_pg_data),
             'data': kira_pg_data
         })

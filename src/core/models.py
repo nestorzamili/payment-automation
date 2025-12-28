@@ -188,6 +188,10 @@ class MerchantLedger(Base):
     topup_payout_pool = Column(Float)
     remarks = Column(Text)
     
+    available_fpx = Column(Float)
+    available_ewallet = Column(Float)
+    available_total = Column(Float)
+    
     payout_pool_balance = Column(Float)
     available_balance = Column(Float)
     total_balance = Column(Float)
@@ -230,6 +234,11 @@ class AgentLedger(Base):
     commission_rate_fpx = Column(Float)
     commission_rate_ewallet = Column(Float)
     withdrawal_amount = Column(Float)
+    
+    available_fpx = Column(Float)
+    available_ewallet = Column(Float)
+    available_total = Column(Float)
+    
     balance = Column(Float)
     
     updated_at = Column(String(30), default=_now_kl, onupdate=_now_kl)
