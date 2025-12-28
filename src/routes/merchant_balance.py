@@ -25,9 +25,9 @@ def update_merchant_balance():
         service = MerchantLedgerService()
         
         if manual_data:
+            logger.info(f"Saving {len(manual_data)} merchant ledger manual inputs")
             service.save_manual_data(manual_data)
         
-        logger.info(f"Loading ledger for: {merchant} {year}-{month:02d}")
         ledger_data = service.get_ledger_data(merchant, year, month)
         
         if not ledger_data:

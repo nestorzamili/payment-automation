@@ -69,8 +69,6 @@ class KiraPGService:
             ).join(
                 PGTransaction,
                 KiraTransaction.transaction_id == PGTransaction.transaction_id
-            ).filter(
-                ~KiraTransaction.merchant.ilike('%test%')
             ).group_by(
                 PGTransaction.account_label,
                 func.substr(KiraTransaction.transaction_date, 1, 10),
@@ -86,8 +84,6 @@ class KiraPGService:
             ).join(
                 KiraTransaction,
                 PGTransaction.transaction_id == KiraTransaction.transaction_id
-            ).filter(
-                ~KiraTransaction.merchant.ilike('%test%')
             ).group_by(
                 PGTransaction.account_label,
                 func.substr(PGTransaction.transaction_date, 1, 10),

@@ -90,12 +90,13 @@ function readAgentManualData(sheet) {
     const id = row[0];
     if (!id) continue;
 
-    manualData.push({
-      id: id,
-      commission_rate_fpx: row[2] !== '' ? row[2] : 'CLEAR',
-      commission_rate_ewallet: row[4] !== '' ? row[4] : 'CLEAR',
-      withdrawal_amount: row[10] !== '' ? row[10] : 'CLEAR',
-    });
+    const entry = { id: id };
+    
+    if (row[2] !== '') entry.commission_rate_fpx = row[2];
+    if (row[4] !== '') entry.commission_rate_ewallet = row[4];
+    if (row[10] !== '') entry.withdrawal_amount = row[10];
+    
+    manualData.push(entry);
   }
 
   return manualData;

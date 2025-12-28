@@ -60,7 +60,6 @@ class AgentLedgerService:
                     )
                     session.add(new_record)
             
-            self._recalculate_balances(session, merchant)
             session.commit()
             
         except Exception as e:
@@ -71,8 +70,6 @@ class AgentLedgerService:
             session.close()
     
     def get_ledger_data(self, merchant: str, year: int, month: int) -> List[Dict[str, Any]]:
-        self.init_from_transactions(merchant, year, month)
-        
         session = get_session()
         tx_service = TransactionService()
         
@@ -89,7 +86,9 @@ class AgentLedgerService:
             
             ledger_map = {lg.transaction_date: lg for lg in ledgers}
             
+            available_map = {}
             result = []
+            
             for tx_row in tx_data:
                 date = tx_row['transaction_date']
                 ledger = ledger_map.get(date)
@@ -107,11 +106,17 @@ class AgentLedgerService:
                 if fpx_commission is not None or ewallet_commission is not None:
                     gross = self._r((fpx_commission or 0) + (ewallet_commission or 0))
                 
-                available_fpx = self._r(tx_row['available_fpx'] * rate_fpx / 100) if rate_fpx and tx_row['available_fpx'] else None
-                available_ewallet = self._r(tx_row['available_ewallet'] * rate_ewallet / 100) if rate_ewallet and tx_row['available_ewallet'] else None
-                available_total = None
-                if available_fpx is not None or available_ewallet is not None:
+                available_fpx = self._r(tx_row['available_fpx'] * rate_fpx / 100) if rate_fpx else (0 if rate_fpx == 0 else None)
+                available_ewallet = self._r(tx_row['available_ewallet'] * rate_ewallet / 100) if rate_ewallet else (0 if rate_ewallet == 0 else None)
+                
+                if rate_fpx is not None or rate_ewallet is not None:
+                    available_fpx = available_fpx if available_fpx is not None else 0
+                    available_ewallet = available_ewallet if available_ewallet is not None else 0
                     available_total = self._r((available_fpx or 0) + (available_ewallet or 0))
+                else:
+                    available_total = None
+                
+                available_map[date] = available_total or 0
                 
                 row = {
                     'transaction_date': date,
@@ -126,7 +131,7 @@ class AgentLedgerService:
                     'available_ewallet': available_ewallet,
                     'available_total': available_total,
                     'withdrawal_amount': ledger.withdrawal_amount if ledger else None,
-                    'balance': ledger.balance if ledger else None,
+                    'balance': None,  # Will be set after recalculation
                     'updated_at': ledger.updated_at if ledger else None
                 }
                 
@@ -134,6 +139,22 @@ class AgentLedgerService:
                     row['id'] = ledger.id
                 
                 result.append(row)
+            
+            self._recalculate_balances(session, merchant, available_map)
+            session.commit()
+            
+            ledgers_updated = session.query(AgentLedger).filter(
+                and_(
+                    AgentLedger.merchant == merchant,
+                    AgentLedger.transaction_date.like(f"{date_prefix}%")
+                )
+            ).order_by(AgentLedger.transaction_date).all()
+            
+            ledger_map_updated = {lg.transaction_date: lg for lg in ledgers_updated}
+            for row in result:
+                ledger = ledger_map_updated.get(row['transaction_date'])
+                if ledger:
+                    row['balance'] = ledger.balance
             
             return result
             
@@ -161,8 +182,6 @@ class AgentLedgerService:
             records_by_id = {r.id: r for r in records}
             manual_by_id = {int(row['id']): row for row in manual_data if row.get('id')}
             
-            merchants_to_recalc = set()
-            
             for ledger_id in valid_ids:
                 existing = records_by_id.get(ledger_id)
                 row = manual_by_id.get(ledger_id)
@@ -173,31 +192,22 @@ class AgentLedgerService:
                 rate_fpx_raw = row.get('commission_rate_fpx')
                 if rate_fpx_raw == 'CLEAR':
                     existing.commission_rate_fpx = None
-                    merchants_to_recalc.add(existing.merchant)
                 elif rate_fpx_raw is not None:
                     existing.commission_rate_fpx = self._to_float(rate_fpx_raw)
-                    merchants_to_recalc.add(existing.merchant)
                 
                 rate_ewallet_raw = row.get('commission_rate_ewallet')
                 if rate_ewallet_raw == 'CLEAR':
                     existing.commission_rate_ewallet = None
-                    merchants_to_recalc.add(existing.merchant)
                 elif rate_ewallet_raw is not None:
                     existing.commission_rate_ewallet = self._to_float(rate_ewallet_raw)
-                    merchants_to_recalc.add(existing.merchant)
                 
                 withdrawal_raw = row.get('withdrawal_amount')
                 if withdrawal_raw == 'CLEAR':
                     existing.withdrawal_amount = None
-                    merchants_to_recalc.add(existing.merchant)
                 elif withdrawal_raw is not None:
                     existing.withdrawal_amount = self._to_float(withdrawal_raw)
-                    merchants_to_recalc.add(existing.merchant)
                 
                 count += 1
-            
-            for merchant in merchants_to_recalc:
-                self._recalculate_balances(session, merchant)
             
             session.commit()
             logger.info(f"Updated {count} agent ledger rows")
@@ -210,7 +220,7 @@ class AgentLedgerService:
         finally:
             session.close()
     
-    def _recalculate_balances(self, session, merchant: str):
+    def _recalculate_balances(self, session, merchant: str, available_map: dict = None):
         rows = session.query(AgentLedger).filter(
             AgentLedger.merchant == merchant
         ).order_by(AgentLedger.transaction_date).all()
@@ -218,13 +228,22 @@ class AgentLedgerService:
         prev_balance = 0
         
         for row in rows:
+            available_total = 0
+            if available_map and row.transaction_date in available_map:
+                available_total = available_map[row.transaction_date] or 0
+            
             has_activity = (
                 row.withdrawal_amount is not None 
+                or available_total > 0
                 or prev_balance != 0
             )
             
             if has_activity:
-                row.balance = self._r(prev_balance - (row.withdrawal_amount or 0))
+                row.balance = self._r(
+                    prev_balance 
+                    + available_total 
+                    - (row.withdrawal_amount or 0)
+                )
             else:
                 row.balance = None
             

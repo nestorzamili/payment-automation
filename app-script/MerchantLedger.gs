@@ -101,15 +101,16 @@ function readMerchantManualData(sheet) {
     const id = row[0];
     if (!id) continue;
 
-    manualData.push({
-      id: id,
-      settlement_fund: row[13] !== '' ? row[13] : 'CLEAR',
-      settlement_charges: row[14] !== '' ? row[14] : 'CLEAR',
-      withdrawal_amount: row[15] !== '' ? row[15] : 'CLEAR',
-      withdrawal_rate: row[16] !== '' ? row[16] : 'CLEAR',
-      topup_payout_pool: row[18] !== '' ? row[18] : 'CLEAR',
-      remarks: row[23] !== '' ? row[23] : 'CLEAR',
-    });
+    const entry = { id: id };
+    
+    if (row[13] !== '') entry.settlement_fund = row[13];
+    if (row[14] !== '') entry.settlement_charges = row[14];
+    if (row[15] !== '') entry.withdrawal_amount = row[15];
+    if (row[16] !== '') entry.withdrawal_rate = row[16];
+    if (row[18] !== '') entry.topup_payout_pool = row[18];
+    if (row[23] !== '') entry.remarks = row[23];
+    
+    manualData.push(entry);
   }
 
   return manualData;

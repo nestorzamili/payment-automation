@@ -60,7 +60,6 @@ class MerchantLedgerService:
                     )
                     session.add(new_record)
             
-            self._recalculate_balances(session, merchant)
             session.commit()
             
         except Exception as e:
@@ -71,13 +70,15 @@ class MerchantLedgerService:
             session.close()
     
     def get_ledger_data(self, merchant: str, year: int, month: int) -> List[Dict[str, Any]]:
-        self.init_from_transactions(merchant, year, month)
-        
         session = get_session()
         tx_service = TransactionService()
         
         try:
             tx_data = tx_service.get_monthly_data(merchant, year, month)
+            available_map = {row['transaction_date']: row['available_total'] for row in tx_data}
+            
+            self._recalculate_balances(session, merchant, available_map)
+            session.commit()
             
             date_prefix = f"{year}-{month:02d}"
             ledgers = session.query(MerchantLedger).filter(
@@ -151,8 +152,6 @@ class MerchantLedgerService:
             records_by_id = {r.id: r for r in records}
             manual_by_id = {int(row['id']): row for row in manual_data if row.get('id')}
             
-            merchants_to_recalc = set()
-            
             for ledger_id in valid_ids:
                 existing = records_by_id.get(ledger_id)
                 row = manual_by_id.get(ledger_id)
@@ -163,37 +162,29 @@ class MerchantLedgerService:
                 val = row.get('settlement_fund')
                 if val == 'CLEAR':
                     existing.settlement_fund = None
-                    merchants_to_recalc.add(existing.merchant)
                 elif val is not None:
                     existing.settlement_fund = self._to_float(val)
-                    merchants_to_recalc.add(existing.merchant)
                 
                 val = row.get('settlement_charges')
                 if val == 'CLEAR':
                     existing.settlement_charges = None
-                    merchants_to_recalc.add(existing.merchant)
                 elif val is not None:
                     existing.settlement_charges = self._to_float(val)
-                    merchants_to_recalc.add(existing.merchant)
                 
                 val = row.get('withdrawal_amount')
                 if val == 'CLEAR':
                     existing.withdrawal_amount = None
                     existing.withdrawal_rate = None
                     existing.withdrawal_charges = None
-                    merchants_to_recalc.add(existing.merchant)
                 elif val is not None:
                     existing.withdrawal_amount = self._to_float(val)
-                    merchants_to_recalc.add(existing.merchant)
                 
                 val = row.get('withdrawal_rate')
                 if val == 'CLEAR':
                     existing.withdrawal_rate = None
                     existing.withdrawal_charges = None
-                    merchants_to_recalc.add(existing.merchant)
                 elif val is not None:
                     existing.withdrawal_rate = self._to_float(val)
-                    merchants_to_recalc.add(existing.merchant)
                 
                 if existing.withdrawal_amount and existing.withdrawal_rate:
                     existing.withdrawal_charges = self._r(
@@ -205,10 +196,8 @@ class MerchantLedgerService:
                 val = row.get('topup_payout_pool')
                 if val == 'CLEAR':
                     existing.topup_payout_pool = None
-                    merchants_to_recalc.add(existing.merchant)
                 elif val is not None:
                     existing.topup_payout_pool = self._to_float(val)
-                    merchants_to_recalc.add(existing.merchant)
                 
                 remarks = row.get('remarks')
                 if remarks == 'CLEAR':
@@ -217,9 +206,6 @@ class MerchantLedgerService:
                     existing.remarks = remarks.strip()
                 
                 count += 1
-            
-            for merchant in merchants_to_recalc:
-                self._recalculate_balances(session, merchant)
             
             session.commit()
             logger.info(f"Updated {count} merchant ledger rows")
@@ -232,24 +218,28 @@ class MerchantLedgerService:
         finally:
             session.close()
     
-    def _recalculate_balances(self, session, merchant: str):
+    def _recalculate_balances(self, session, merchant: str, available_map: Dict[str, float] = None):
         rows = session.query(MerchantLedger).filter(
             MerchantLedger.merchant == merchant
         ).order_by(MerchantLedger.transaction_date).all()
         
-        prev_payout_pool = 0
-        prev_available = 0
+        prev_topup_payout_pool = 0
+        prev_available_balance = 0
         
         for row in rows:
+            available_total = 0
+            if available_map and row.transaction_date in available_map:
+                available_total = available_map[row.transaction_date]
+            
             has_payout_activity = (
                 row.withdrawal_amount is not None 
                 or row.topup_payout_pool is not None
-                or prev_payout_pool != 0
+                or prev_topup_payout_pool != 0
             )
             
             if has_payout_activity:
                 row.payout_pool_balance = self._r(
-                    prev_payout_pool
+                    prev_topup_payout_pool
                     - (row.withdrawal_amount or 0)
                     - (row.withdrawal_charges or 0)
                     + (row.topup_payout_pool or 0)
@@ -259,12 +249,14 @@ class MerchantLedgerService:
             
             has_available_activity = (
                 row.settlement_fund is not None
-                or prev_available != 0
+                or available_total > 0
+                or prev_available_balance != 0
             )
             
             if has_available_activity:
                 row.available_balance = self._r(
-                    prev_available
+                    prev_available_balance
+                    + available_total
                     - (row.settlement_fund or 0)
                     - (row.settlement_charges or 0)
                 )
@@ -278,8 +270,8 @@ class MerchantLedgerService:
             else:
                 row.total_balance = None
             
-            prev_payout_pool = row.payout_pool_balance if row.payout_pool_balance is not None else prev_payout_pool
-            prev_available = row.available_balance if row.available_balance is not None else prev_available
+            prev_topup_payout_pool = row.payout_pool_balance if row.payout_pool_balance is not None else prev_topup_payout_pool
+            prev_available_balance = row.available_balance if row.available_balance is not None else prev_available_balance
     
     def upload_to_sheet(self, merchant: str, year: int, month: int, sheet_name: str) -> Dict[str, Any]:
         try:

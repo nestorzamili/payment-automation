@@ -53,6 +53,44 @@ def run_parse_job(run_id: str):
         except Exception as e:
             logger.error(f"{label} parse error: {e}")
     
+    try:
+        from src.core.database import get_session
+        from src.core.models import KiraTransaction
+        from src.sheets.merchant_ledger import MerchantLedgerService
+        from src.sheets.agent_ledger import AgentLedgerService
+        from sqlalchemy import func, distinct
+        
+        session = get_session()
+        
+        results = session.query(
+            KiraTransaction.merchant,
+            func.substr(KiraTransaction.transaction_date, 1, 7).label('ym')
+        ).distinct().all()
+        
+        session.close()
+        
+        merchant_service = MerchantLedgerService()
+        agent_service = AgentLedgerService()
+        
+        periods = set()
+        for merchant, ym in results:
+            if merchant and ym:
+                year = int(ym[:4])
+                month = int(ym[5:7])
+                periods.add((merchant, year, month))
+        
+        for merchant, year, month in periods:
+            try:
+                merchant_service.init_from_transactions(merchant, year, month)
+                agent_service.init_from_transactions(merchant, year, month)
+            except Exception as e:
+                logger.error(f"Failed to init ledger for {merchant} {year}-{month}: {e}")
+        
+        logger.info(f"Initialized ledgers for {len(periods)} merchant-periods")
+        
+    except Exception as e:
+        logger.error(f"Failed to initialize ledgers: {e}")
+    
     _parse_running = False
     logger.info(f"Parse job completed (run_id: {run_id})")
 

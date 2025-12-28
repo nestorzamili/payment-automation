@@ -25,27 +25,6 @@ class DepositService:
         self.param_loader = param_loader
         self.tx_service = TransactionService(self.add_on_holidays, self.param_loader)
     
-    def generate_for_merchant(self, merchant: str, year: int, month: int) -> int:
-        self._init_ledgers(merchant, year, month)
-        
-        data = self.tx_service.get_monthly_data(merchant, year, month)
-        logger.info(f"Generated deposit data for {merchant}: {len(data)} rows")
-        return len(data)
-    
-    def _init_ledgers(self, merchant: str, year: int, month: int):
-        try:
-            from src.sheets.merchant_ledger import MerchantLedgerService
-            from src.sheets.agent_ledger import AgentLedgerService
-            
-            merchant_service = MerchantLedgerService(self.sheets_client)
-            merchant_service.init_from_transactions(merchant, year, month)
-            
-            agent_service = AgentLedgerService(self.sheets_client)
-            agent_service.init_from_transactions(merchant, year, month)
-            
-        except Exception as e:
-            logger.error(f"Failed to init ledgers: {e}")
-    
     def _normalize_channel(self, payment_method: str) -> str:
         if not payment_method:
             return 'EWALLET'
