@@ -47,40 +47,34 @@ function readParameterData(sheet) {
   const settlementRules = {};
   const addOnHolidays = [];
   
-  let currentSection = null;
-  
+  let headerRowIdx = -1;
   for (let i = 0; i < data.length; i++) {
+    if (data[i][0] === 'Type' && data[i][1] === 'Key') {
+      headerRowIdx = i;
+      break;
+    }
+  }
+  
+  if (headerRowIdx === -1) {
+    return { settlement_rules: {}, add_on_holidays: [] };
+  }
+  
+  for (let i = headerRowIdx + 1; i < data.length; i++) {
     const row = data[i];
-    const firstCell = String(row[0]).trim();
+    const paramType = String(row[0] || '').trim();
+    const paramKey = String(row[1] || '').trim();
+    const paramValue = String(row[2] || '').trim();
+    const paramDesc = String(row[3] || '').trim();
     
-    if (firstCell.startsWith('SECTION:')) {
-      currentSection = firstCell.replace('SECTION:', '').trim();
-      continue;
-    }
+    if (!paramType || !paramKey) continue;
     
-    if (!firstCell || firstCell === '') {
-      currentSection = null;
-      continue;
-    }
-    
-    if (currentSection === 'SETTLEMENT_RULES') {
-      const channel = firstCell;
-      const rule = String(row[1]).trim();
-      if (channel && rule) {
-        settlementRules[channel.toLowerCase()] = rule;
-      }
-    } else if (currentSection === 'ADD_ON_HOLIDAYS') {
-      if (firstCell === 'Date') continue;
-      
-      const dateVal = row[0];
-      const description = String(row[1] || '').trim();
-      
-      if (dateVal) {
-        addOnHolidays.push({
-          date: formatDate(dateVal),
-          description: description,
-        });
-      }
+    if (paramType === 'SETTLEMENT_RULES') {
+      settlementRules[paramKey.toLowerCase()] = paramValue;
+    } else if (paramType === 'ADD_ON_HOLIDAYS') {
+      addOnHolidays.push({
+        date: paramKey,
+        description: paramDesc,
+      });
     }
   }
   

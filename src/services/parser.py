@@ -207,7 +207,7 @@ def _load_parameters_from_sheet():
                     continue
                 
                 param_type = row[type_idx] if len(row) > type_idx else ''
-                param_key = row[key_idx] if len(row) > key_idx else ''
+                param_key = (row[key_idx] if len(row) > key_idx else '').lower()
                 param_value = row[value_idx] if len(row) > value_idx else ''
                 param_desc = row[desc_idx] if len(row) > desc_idx else ''
                 
