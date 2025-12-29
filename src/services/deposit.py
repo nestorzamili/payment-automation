@@ -261,6 +261,7 @@ class DepositService:
     
     def _to_response_dict(self, record: Deposit) -> Dict[str, Any]:
         return {
+            'id': record.id,
             'transaction_date': record.transaction_date,
             'fpx_amount': record.fpx_amount,
             'fpx_volume': record.fpx_volume,
@@ -291,36 +292,38 @@ class DepositService:
         try:
             grouped = {}
             for row in fee_data:
-                merchant = row.get('merchant')
-                date = row.get('transaction_date')
+                deposit_id = row.get('id')
                 channel = row.get('channel')
                 
-                if not all([merchant, date, channel]):
+                if not deposit_id or not channel:
                     continue
                 
-                key = (merchant, date)
-                if key not in grouped:
-                    grouped[key] = {'FPX': {}, 'EWALLET': {}}
+                deposit_id = int(deposit_id)
+                if deposit_id not in grouped:
+                    grouped[deposit_id] = {'FPX': {}, 'EWALLET': {}}
                 
-                grouped[key][channel] = {
+                grouped[deposit_id][channel] = {
                     'fee_type': row.get('fee_type'),
                     'fee_rate': to_float(row.get('fee_rate')),
                     'remarks': row.get('remarks'),
                 }
             
-            for (merchant, date), channel_data in grouped.items():
-                existing = session.query(Deposit).filter(
-                    and_(
-                        Deposit.merchant == merchant,
-                        Deposit.transaction_date == date
-                    )
-                ).first()
-                
+            if not grouped:
+                return 0
+            
+            records = session.query(Deposit).filter(
+                Deposit.id.in_(grouped.keys())
+            ).all()
+            
+            records_by_id = {r.id: r for r in records}
+            
+            for deposit_id, channel_data in grouped.items():
+                existing = records_by_id.get(deposit_id)
                 if not existing:
                     continue
                 
                 fpx_data = channel_data.get('FPX', {})
-                if fpx_data:
+                if fpx_data.get('fee_type') is not None or fpx_data.get('fee_rate') is not None:
                     existing.fpx_fee_type = fpx_data.get('fee_type')
                     existing.fpx_fee_rate = fpx_data.get('fee_rate')
                     existing.fpx_fee_amount = calculate_fee(
@@ -330,7 +333,7 @@ class DepositService:
                     existing.fpx_gross = r((existing.fpx_amount or 0) - (existing.fpx_fee_amount or 0))
                 
                 ewallet_data = channel_data.get('EWALLET', {})
-                if ewallet_data:
+                if ewallet_data.get('fee_type') is not None or ewallet_data.get('fee_rate') is not None:
                     existing.ewallet_fee_type = ewallet_data.get('fee_type')
                     existing.ewallet_fee_rate = ewallet_data.get('fee_rate')
                     existing.ewallet_fee_amount = calculate_fee(
@@ -357,3 +360,4 @@ class DepositService:
             raise
         finally:
             session.close()
+

@@ -111,8 +111,8 @@ class AgentLedgerService:
                 rate_fpx = ledger.commission_rate_fpx if ledger else None
                 rate_ewallet = ledger.commission_rate_ewallet if ledger else None
                 
-                fpx_commission = self._r(kira_fpx * rate_fpx / 10) if rate_fpx else None
-                ewallet_commission = self._r(kira_ewallet * rate_ewallet / 10) if rate_ewallet else None
+                fpx_commission = self._r(kira_fpx * rate_fpx / 100) if rate_fpx else None
+                ewallet_commission = self._r(kira_ewallet * rate_ewallet / 100) if rate_ewallet else None
                 
                 gross = None
                 if fpx_commission is not None or ewallet_commission is not None:

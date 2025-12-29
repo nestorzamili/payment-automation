@@ -21,7 +21,7 @@ function updateDeposit() {
     return;
   }
 
-  const feeData = readDepositFeeData(sheet, merchant);
+  const feeData = readDepositFeeData(sheet);
 
   const payload = {
     merchant: merchant,
@@ -53,12 +53,13 @@ function updateDeposit() {
     const result = JSON.parse(response.getContentText());
 
     if (result.status === 'success' && result.data && result.data.data) {
-      const dataRange = sheet.getRange('A7:U50');
+      const dataRange = sheet.getRange('A7:V50');
       dataRange.clearContent();
       dataRange.clearDataValidations();
 
       const data = result.data.data;
       const rows = data.map((row) => [
+        row.id ?? '',
         row.transaction_date ?? '',
         row.fpx_amount ?? '',
         row.fpx_volume ?? '',
@@ -83,19 +84,19 @@ function updateDeposit() {
       ]);
 
       if (rows.length > 0) {
-        sheet.getRange(7, 1, rows.length, 21).setValues(rows);
+        sheet.getRange(7, 1, rows.length, 22).setValues(rows);
         
-        sheet.getRange(7, 1, rows.length, 1).setNumberFormat('@');
-        sheet.getRange(7, 8, rows.length, 1).setNumberFormat('@');
-        sheet.getRange(7, 15, rows.length, 1).setNumberFormat('@');
+        sheet.getRange(7, 2, rows.length, 1).setNumberFormat('@');
+        sheet.getRange(7, 9, rows.length, 1).setNumberFormat('@');
+        sheet.getRange(7, 16, rows.length, 1).setNumberFormat('@');
         
         const feeTypeRule = SpreadsheetApp.newDataValidation()
           .requireValueInList(['percentage', 'per_volume', 'flat'], true)
           .setAllowInvalid(false)
           .build();
         
-        sheet.getRange(7, 4, rows.length, 1).setDataValidation(feeTypeRule);
-        sheet.getRange(7, 11, rows.length, 1).setDataValidation(feeTypeRule);
+        sheet.getRange(7, 5, rows.length, 1).setDataValidation(feeTypeRule);
+        sheet.getRange(7, 12, rows.length, 1).setDataValidation(feeTypeRule);
       }
     }
   } catch (error) {
@@ -103,34 +104,29 @@ function updateDeposit() {
   }
 }
 
-function readDepositFeeData(sheet, merchant) {
-  const data = sheet.getRange('A7:U50').getValues();
+function readDepositFeeData(sheet) {
+  const data = sheet.getRange('A7:V50').getValues();
   const feeData = [];
 
   for (let i = 0; i < data.length; i++) {
     const row = data[i];
-    const transactionDate = row[0];
-
-    if (!transactionDate) continue;
-
-    const dateStr = formatDate(transactionDate);
-
+    const id = row[0];
+    if (!id) continue;
+    
     feeData.push({
-      merchant: merchant,
-      transaction_date: dateStr,
+      id: id,
       channel: 'FPX',
-      fee_type: row[3] !== '' ? row[3] : null,
-      fee_rate: row[4] !== '' ? row[4] : null,
-      remarks: row[20] !== '' ? row[20] : null,
+      fee_type: row[4] !== '' ? row[4] : null,
+      fee_rate: row[5] !== '' ? row[5] : null,
+      remarks: row[21] !== '' ? row[21] : null,
     });
 
     feeData.push({
-      merchant: merchant,
-      transaction_date: dateStr,
+      id: id,
       channel: 'EWALLET',
-      fee_type: row[10] !== '' ? row[10] : null,
-      fee_rate: row[11] !== '' ? row[11] : null,
-      remarks: row[20] !== '' ? row[20] : null,
+      fee_type: row[11] !== '' ? row[11] : null,
+      fee_rate: row[12] !== '' ? row[12] : null,
+      remarks: row[21] !== '' ? row[21] : null,
     });
   }
 
