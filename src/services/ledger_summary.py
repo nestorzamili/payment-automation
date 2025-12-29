@@ -68,8 +68,8 @@ class LedgerSummaryService:
                 if deposit:
                     rate_fpx = ledger.commission_rate_fpx or 0
                     rate_ewallet = ledger.commission_rate_ewallet or 0
-                    avail_fpx = (deposit.available_fpx or 0) * rate_fpx / 100 if rate_fpx else 0
-                    avail_ewallet = (deposit.available_ewallet or 0) * rate_ewallet / 100 if rate_ewallet else 0
+                    avail_fpx = (deposit.fpx_amount or 0) * rate_fpx / 1000 if rate_fpx else 0
+                    avail_ewallet = (deposit.ewallet_amount or 0) * rate_ewallet / 1000 if rate_ewallet else 0
                     available_total = avail_fpx + avail_ewallet
                 
                 month = ledger.transaction_date[5:7]

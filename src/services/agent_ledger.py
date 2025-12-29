@@ -106,19 +106,18 @@ class AgentLedgerService:
                 rate_fpx = ledger.commission_rate_fpx if ledger else None
                 rate_ewallet = ledger.commission_rate_ewallet if ledger else None
                 
-                fpx_commission = self._r(kira_fpx * rate_fpx / 100) if rate_fpx else None
-                ewallet_commission = self._r(kira_ewallet * rate_ewallet / 100) if rate_ewallet else None
+                fpx_commission = self._r(kira_fpx * rate_fpx / 1000) if rate_fpx else None
+                ewallet_commission = self._r(kira_ewallet * rate_ewallet / 1000) if rate_ewallet else None
                 
                 gross = None
                 if fpx_commission is not None or ewallet_commission is not None:
                     gross = self._r((fpx_commission or 0) + (ewallet_commission or 0))
                 
-                # Available Settlement = Commission Rate × Kira Amount that settles on this date
-                deposit_avail_fpx = deposit.available_fpx or 0
-                deposit_avail_ewallet = deposit.available_ewallet or 0
+                deposit_fpx = deposit.fpx_amount or 0
+                deposit_ewallet = deposit.ewallet_amount or 0
                 
-                available_fpx = self._r(deposit_avail_fpx * rate_fpx / 100) if rate_fpx else None
-                available_ewallet = self._r(deposit_avail_ewallet * rate_ewallet / 100) if rate_ewallet else None
+                available_fpx = self._r(deposit_fpx * rate_fpx / 1000) if rate_fpx else None
+                available_ewallet = self._r(deposit_ewallet * rate_ewallet / 1000) if rate_ewallet else None
                 
                 available_total = None
                 if available_fpx is not None or available_ewallet is not None:
@@ -231,8 +230,8 @@ class AgentLedgerService:
             if deposit:
                 rate_fpx = row.commission_rate_fpx or 0
                 rate_ewallet = row.commission_rate_ewallet or 0
-                avail_fpx = self._r((deposit.available_fpx or 0) * rate_fpx / 100) if rate_fpx else 0
-                avail_ewallet = self._r((deposit.available_ewallet or 0) * rate_ewallet / 100) if rate_ewallet else 0
+                avail_fpx = self._r((deposit.fpx_amount or 0) * rate_fpx / 1000) if rate_fpx else 0
+                avail_ewallet = self._r((deposit.ewallet_amount or 0) * rate_ewallet / 1000) if rate_ewallet else 0
                 available_total = (avail_fpx or 0) + (avail_ewallet or 0)
             
             has_activity = (
