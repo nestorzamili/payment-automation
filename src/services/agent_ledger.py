@@ -113,9 +113,16 @@ class AgentLedgerService:
                 if fpx_commission is not None or ewallet_commission is not None:
                     gross = self._r((fpx_commission or 0) + (ewallet_commission or 0))
                 
-                available_fpx = deposit.available_fpx
-                available_ewallet = deposit.available_ewallet
-                available_total = deposit.available_total
+                # Available Settlement = Commission Rate × Kira Amount that settles on this date
+                deposit_avail_fpx = deposit.available_fpx or 0
+                deposit_avail_ewallet = deposit.available_ewallet or 0
+                
+                available_fpx = self._r(deposit_avail_fpx * rate_fpx / 100) if rate_fpx else None
+                available_ewallet = self._r(deposit_avail_ewallet * rate_ewallet / 100) if rate_ewallet else None
+                
+                available_total = None
+                if available_fpx is not None or available_ewallet is not None:
+                    available_total = self._r((available_fpx or 0) + (available_ewallet or 0))
                 
                 row = {
                     'transaction_date': date,
@@ -204,14 +211,29 @@ class AgentLedgerService:
             session.close()
     
     def _recalculate_balances(self, session, merchant: str):
+        from src.core.models import Deposit
+        
         rows = session.query(AgentLedger).filter(
             AgentLedger.merchant == merchant
         ).order_by(AgentLedger.transaction_date).all()
         
+        deposits = session.query(Deposit).filter(
+            Deposit.merchant == merchant
+        ).all()
+        deposit_map = {d.transaction_date: d for d in deposits}
+        
         prev_balance = 0
         
         for row in rows:
-            available_total = row.available_total or 0
+            deposit = deposit_map.get(row.transaction_date)
+            
+            available_total = 0
+            if deposit:
+                rate_fpx = row.commission_rate_fpx or 0
+                rate_ewallet = row.commission_rate_ewallet or 0
+                avail_fpx = self._r((deposit.available_fpx or 0) * rate_fpx / 100) if rate_fpx else 0
+                avail_ewallet = self._r((deposit.available_ewallet or 0) * rate_ewallet / 100) if rate_ewallet else 0
+                available_total = (avail_fpx or 0) + (avail_ewallet or 0)
             
             has_activity = (
                 row.withdrawal_amount is not None 

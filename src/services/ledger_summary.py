@@ -46,25 +46,72 @@ class LedgerSummaryService:
         session = get_session()
         
         try:
-            from src.core.models import AgentLedger
+            from src.core.models import AgentLedger, Deposit
             
             date_prefix = f"{year}-"
             
-            results = session.query(
-                AgentLedger.merchant,
-                func.substr(AgentLedger.transaction_date, 6, 2).label('month'),
-                func.sum(func.coalesce(AgentLedger.available_total, 0)).label('total')
-            ).filter(
+            ledgers = session.query(AgentLedger).filter(
                 AgentLedger.transaction_date.like(f"{date_prefix}%")
-            ).group_by(
-                AgentLedger.merchant,
-                func.substr(AgentLedger.transaction_date, 6, 2)
             ).all()
             
-            return self._format_results(results)
+            deposits = session.query(Deposit).filter(
+                Deposit.transaction_date.like(f"{date_prefix}%")
+            ).all()
+            
+            deposit_map = {(d.merchant, d.transaction_date): d for d in deposits}
+            
+            results = []
+            for ledger in ledgers:
+                deposit = deposit_map.get((ledger.merchant, ledger.transaction_date))
+                
+                available_total = 0
+                if deposit:
+                    rate_fpx = ledger.commission_rate_fpx or 0
+                    rate_ewallet = ledger.commission_rate_ewallet or 0
+                    avail_fpx = (deposit.available_fpx or 0) * rate_fpx / 100 if rate_fpx else 0
+                    avail_ewallet = (deposit.available_ewallet or 0) * rate_ewallet / 100 if rate_ewallet else 0
+                    available_total = avail_fpx + avail_ewallet
+                
+                month = ledger.transaction_date[5:7]
+                results.append({
+                    'merchant': ledger.merchant,
+                    'month': month,
+                    'total': available_total
+                })
+            
+            return self._format_agent_results(results)
             
         finally:
             session.close()
+    
+    def _format_agent_results(self, results) -> Dict[str, Any]:
+        merchants = set()
+        data = {}
+        monthly_totals = {str(m): 0 for m in range(1, 13)}
+        monthly_totals['grand_total'] = 0
+        
+        for row in results:
+            merchant = row['merchant']
+            month = str(int(row['month']))
+            total = float(row['total']) if row['total'] else 0
+            
+            merchants.add(merchant)
+            
+            if merchant not in data:
+                data[merchant] = {str(m): 0 for m in range(1, 13)}
+                data[merchant]['total'] = 0
+            
+            data[merchant][month] = round(data[merchant][month] + total, 2)
+            data[merchant]['total'] = round(data[merchant]['total'] + total, 2)
+            
+            monthly_totals[month] = round(monthly_totals[month] + total, 2)
+            monthly_totals['grand_total'] = round(monthly_totals['grand_total'] + total, 2)
+        
+        return {
+            'merchants': sorted(list(merchants)),
+            'data': data,
+            'monthly_totals': monthly_totals
+        }
     
     def _get_payout_pool_summary(self, year: int) -> Dict[str, Any]:
         session = get_session()
