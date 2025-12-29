@@ -1,3 +1,4 @@
+import gspread
 from gspread.auth import authorize
 from google.oauth2.service_account import Credentials
 import pandas as pd
@@ -98,3 +99,40 @@ class SheetsClient:
             col, remainder = divmod(col - 1, 26)
             result = chr(65 + remainder) + result
         return result
+    
+    def set_dropdown(self, sheet_name: str, cell: str, values: List[str]):
+        try:
+            worksheet = self.spreadsheet.worksheet(sheet_name)
+            
+            col_letter = ''.join(filter(str.isalpha, cell))
+            row_num = int(''.join(filter(str.isdigit, cell)))
+            col_num = sum((ord(c.upper()) - ord('A') + 1) * (26 ** i) 
+                         for i, c in enumerate(reversed(col_letter)))
+            
+            sheet_id = worksheet.id
+            
+            request = {
+                "setDataValidation": {
+                    "range": {
+                        "sheetId": sheet_id,
+                        "startRowIndex": row_num - 1,
+                        "endRowIndex": row_num,
+                        "startColumnIndex": col_num - 1,
+                        "endColumnIndex": col_num
+                    },
+                    "rule": {
+                        "condition": {
+                            "type": "ONE_OF_LIST",
+                            "values": [{"userEnteredValue": v} for v in values]
+                        },
+                        "showCustomUi": True,
+                        "strict": True
+                    }
+                }
+            }
+            
+            self.spreadsheet.batch_update({"requests": [request]})
+            logger.info(f"Set dropdown in {sheet_name}!{cell} with {len(values)} values")
+        except Exception as e:
+            logger.error(f"Failed to set dropdown in {sheet_name}!{cell}: {e}")
+

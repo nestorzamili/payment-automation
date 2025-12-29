@@ -22,7 +22,7 @@ from src.scrapers import (
     wait_for_download,
     SessionManager,
 )
-from src.sheets import SheetsClient, ParameterLoader
+from src.services.client import SheetsClient
 
 __all__ = [
     'BrowserManager',
@@ -46,5 +46,4 @@ __all__ = [
     'ProcessingError',
     'get_scraper_class',
     'SheetsClient',
-    'ParameterLoader',
 ]

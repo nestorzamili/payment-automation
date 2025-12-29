@@ -47,58 +47,19 @@ class LedgerSummaryService:
         
         try:
             from src.core.models import AgentLedger
-            from src.sheets.transaction import TransactionService
             
             date_prefix = f"{year}-"
             
-            merchants = session.query(AgentLedger.merchant).filter(
+            results = session.query(
+                AgentLedger.merchant,
+                func.substr(AgentLedger.transaction_date, 6, 2).label('month'),
+                func.sum(func.coalesce(AgentLedger.available_total, 0)).label('total')
+            ).filter(
                 AgentLedger.transaction_date.like(f"{date_prefix}%")
-            ).distinct().all()
-            
-            merchant_list = [m[0] for m in merchants]
-            
-            tx_service = TransactionService()
-            results = []
-            
-            for merchant in merchant_list:
-                for month in range(1, 13):
-                    month_prefix = f"{year}-{month:02d}"
-                    ledgers = session.query(AgentLedger).filter(
-                        AgentLedger.merchant == merchant,
-                        AgentLedger.transaction_date.like(f"{month_prefix}%")
-                    ).all()
-                    
-                    if not ledgers:
-                        continue
-                    
-                    ledger_map = {lg.transaction_date: lg for lg in ledgers}
-                    
-                    tx_data = tx_service.get_monthly_data(merchant, year, month)
-                    
-                    month_total = 0
-                    for tx_row in tx_data:
-                        date = tx_row['transaction_date']
-                        ledger = ledger_map.get(date)
-                        
-                        if not ledger:
-                            continue
-                        
-                        rate_fpx = ledger.commission_rate_fpx or 0
-                        rate_ewallet = ledger.commission_rate_ewallet or 0
-                        
-                        available_fpx = round((tx_row['available_fpx'] or 0) * rate_fpx / 100, 2)
-                        available_ewallet = round((tx_row['available_ewallet'] or 0) * rate_ewallet / 100, 2)
-                        available_total = round(available_fpx + available_ewallet, 2)
-                        
-                        month_total += available_total
-                    
-                    class ResultRow:
-                        pass
-                    row = ResultRow()
-                    row.merchant = merchant
-                    row.month = f"{month:02d}"
-                    row.total = round(month_total, 2)
-                    results.append(row)
+            ).group_by(
+                AgentLedger.merchant,
+                func.substr(AgentLedger.transaction_date, 6, 2)
+            ).all()
             
             return self._format_results(results)
             

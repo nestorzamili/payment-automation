@@ -6,8 +6,7 @@ from sqlalchemy import and_
 from src.core.database import get_session
 from src.core.models import MerchantLedger
 from src.core.logger import get_logger
-from src.sheets.client import SheetsClient
-from src.sheets.transaction import TransactionService
+from src.services.client import SheetsClient
 
 logger = get_logger(__name__)
 
@@ -71,13 +70,21 @@ class MerchantLedgerService:
     
     def get_ledger_data(self, merchant: str, year: int, month: int) -> List[Dict[str, Any]]:
         session = get_session()
-        tx_service = TransactionService()
         
         try:
-            tx_data = tx_service.get_monthly_data(merchant, year, month)
-            tx_map = {row['transaction_date']: row for row in tx_data}
+            from src.core.models import Deposit
             
             date_prefix = f"{year}-{month:02d}"
+            
+            deposits = session.query(Deposit).filter(
+                and_(
+                    Deposit.merchant == merchant,
+                    Deposit.transaction_date.like(f"{date_prefix}%")
+                )
+            ).order_by(Deposit.transaction_date).all()
+            
+            deposit_map = {d.transaction_date: d for d in deposits}
+            
             ledgers = session.query(MerchantLedger).filter(
                 and_(
                     MerchantLedger.merchant == merchant,
@@ -86,11 +93,11 @@ class MerchantLedgerService:
             ).order_by(MerchantLedger.transaction_date).all()
             
             for ledger in ledgers:
-                tx_row = tx_map.get(ledger.transaction_date)
-                if tx_row:
-                    ledger.available_fpx = tx_row['available_fpx']
-                    ledger.available_ewallet = tx_row['available_ewallet']
-                    ledger.available_total = tx_row['available_total']
+                deposit = deposit_map.get(ledger.transaction_date)
+                if deposit:
+                    ledger.available_fpx = deposit.available_fpx
+                    ledger.available_ewallet = deposit.available_ewallet
+                    ledger.available_total = deposit.available_total
             
             self._recalculate_balances(session, merchant)
             session.commit()
@@ -98,23 +105,26 @@ class MerchantLedgerService:
             ledger_map = {lg.transaction_date: lg for lg in ledgers}
             
             result = []
-            for tx_row in tx_data:
-                date = tx_row['transaction_date']
+            for deposit in deposits:
+                date = deposit.transaction_date
                 ledger = ledger_map.get(date)
+                
+                fpx_gross = self._r((deposit.fpx_amount or 0) - (deposit.fpx_fee_amount or 0))
+                ewallet_gross = self._r((deposit.ewallet_amount or 0) - (deposit.ewallet_fee_amount or 0))
                 
                 row = {
                     'transaction_date': date,
-                    'fpx_amount': tx_row['fpx_amount'],
-                    'fpx_fee': tx_row['fpx_fee_amount'],
-                    'fpx_gross': tx_row['fpx_gross'],
-                    'ewallet_amount': tx_row['ewallet_amount'],
-                    'ewallet_fee': tx_row['ewallet_fee_amount'],
-                    'ewallet_gross': tx_row['ewallet_gross'],
-                    'total_gross': tx_row['fpx_gross'] + tx_row['ewallet_gross'],
-                    'total_fee': tx_row['total_fees'],
-                    'available_fpx': tx_row['available_fpx'],
-                    'available_ewallet': tx_row['available_ewallet'],
-                    'available_total': tx_row['available_total'],
+                    'fpx_amount': deposit.fpx_amount,
+                    'fpx_fee': deposit.fpx_fee_amount,
+                    'fpx_gross': fpx_gross,
+                    'ewallet_amount': deposit.ewallet_amount,
+                    'ewallet_fee': deposit.ewallet_fee_amount,
+                    'ewallet_gross': ewallet_gross,
+                    'total_gross': self._r((fpx_gross or 0) + (ewallet_gross or 0)),
+                    'total_fee': deposit.total_fees,
+                    'available_fpx': deposit.available_fpx,
+                    'available_ewallet': deposit.available_ewallet,
+                    'available_total': deposit.available_total,
                     'settlement_fund': ledger.settlement_fund if ledger else None,
                     'settlement_charges': ledger.settlement_charges if ledger else None,
                     'withdrawal_amount': ledger.withdrawal_amount if ledger else None,
@@ -125,7 +135,7 @@ class MerchantLedgerService:
                     'available_balance': ledger.available_balance if ledger else None,
                     'total_balance': ledger.total_balance if ledger else None,
                     'updated_at': ledger.updated_at if ledger else None,
-                    'remarks': ledger.remarks if ledger else tx_row.get('remarks')
+                    'remarks': ledger.remarks if ledger else deposit.remarks
                 }
                 
                 if ledger:

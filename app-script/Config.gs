@@ -6,6 +6,7 @@ const CONFIG = {
   KIRA_PG_SHEET: 'Kira PG',
   DEPOSIT_SHEET: 'Deposit',
   SUMMARY_SHEET: 'Summary',
+  PARAMETER_SHEET: 'Parameters',
 };
 
 const MONTHS = {

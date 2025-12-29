@@ -1,6 +1,6 @@
 from flask import Blueprint, request
 
-from src.sheets.merchant_ledger import MerchantLedgerService
+from src.services.merchant_ledger import MerchantLedgerService
 from src.core.logger import get_logger
 from src.utils.response import jsend_success, jsend_fail, jsend_error
 

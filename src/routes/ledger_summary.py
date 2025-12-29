@@ -1,7 +1,7 @@
 from flask import Blueprint, request
 
 from src.core.logger import get_logger
-from src.sheets.ledger_summary import LedgerSummaryService
+from src.services.ledger_summary import LedgerSummaryService
 from src.utils.response import jsend_success, jsend_fail, jsend_error
 
 logger = get_logger(__name__)

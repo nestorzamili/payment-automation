@@ -1,6 +1,6 @@
 from flask import Blueprint, request
 
-from src.sheets.deposit import DepositService
+from src.services.deposit import DepositService
 from src.core.logger import get_logger
 from src.utils.response import jsend_success, jsend_fail, jsend_error
 

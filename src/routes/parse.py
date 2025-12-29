@@ -4,7 +4,7 @@ from threading import Thread
 from flask import Blueprint
 
 from src.core.logger import get_logger
-from src.core.parser import run_parse_job
+from src.services.parser import run_parse_job
 from src.utils import jsend_success
 
 bp = Blueprint('parse', __name__)
@@ -27,6 +27,8 @@ def parse_all():
         global _parse_running
         try:
             run_parse_job(rid)
+        except Exception as e:
+            logger.error(f"Parse job failed: {e}")
         finally:
             _parse_running = False
     

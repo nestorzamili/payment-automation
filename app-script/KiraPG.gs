@@ -7,9 +7,24 @@ function updateKiraPG() {
     return;
   }
 
+  const period = sheet.getRange('B1').getValue();
+  
+  if (!period) {
+    SpreadsheetApp.getUi().alert('Please select Period');
+    return;
+  }
+
+  const { year, month } = parsePeriod(period);
+  if (!year || !month) {
+    SpreadsheetApp.getUi().alert('Invalid period format');
+    return;
+  }
+
   const manualData = readKiraPGManualData(sheet);
 
   const payload = {
+    year: year,
+    month: month,
     manual_data: manualData,
   };
 
@@ -36,7 +51,7 @@ function updateKiraPG() {
     const result = JSON.parse(response.getContentText());
 
     if (result.status === 'success' && result.data && result.data.data) {
-      sheet.getRange('A4:P1000').clearContent();
+      sheet.getRange('A4:P300').clearContent();
 
       const data = result.data.data;
       const rows = data.map((row) => [
@@ -61,8 +76,6 @@ function updateKiraPG() {
       if (rows.length > 0) {
         sheet.getRange(4, 1, rows.length, 16).setValues(rows);
       }
-
-      setupMerchantDropdowns();
     }
   } catch (error) {
     SpreadsheetApp.getUi().alert('Error: ' + error.message);
@@ -70,7 +83,7 @@ function updateKiraPG() {
 }
 
 function readKiraPGManualData(sheet) {
-  const data = sheet.getRange('A4:P1000').getValues();
+  const data = sheet.getRange('A4:P300').getValues();
   const manualData = [];
 
   for (let i = 0; i < data.length; i++) {
@@ -95,4 +108,21 @@ function readKiraPGManualData(sheet) {
   }
 
   return manualData;
+}
+
+function parsePeriod(period) {
+  if (period instanceof Date) {
+    return {
+      month: period.getMonth() + 1,
+      year: period.getFullYear(),
+    };
+  }
+
+  const match = String(period).match(/(\w+)\s+(\d{4})/);
+  if (!match) return {};
+
+  return {
+    month: MONTHS[match[1]] || null,
+    year: parseInt(match[2]),
+  };
 }

@@ -6,8 +6,7 @@ from sqlalchemy import and_
 from src.core.database import get_session
 from src.core.models import AgentLedger
 from src.core.logger import get_logger
-from src.sheets.client import SheetsClient
-from src.sheets.transaction import TransactionService
+from src.services.client import SheetsClient
 
 logger = get_logger(__name__)
 
@@ -71,13 +70,21 @@ class AgentLedgerService:
     
     def get_ledger_data(self, merchant: str, year: int, month: int) -> List[Dict[str, Any]]:
         session = get_session()
-        tx_service = TransactionService()
         
         try:
-            tx_data = tx_service.get_monthly_data(merchant, year, month)
-            tx_map = {row['transaction_date']: row for row in tx_data}
+            from src.core.models import Deposit
             
             date_prefix = f"{year}-{month:02d}"
+            
+            deposits = session.query(Deposit).filter(
+                and_(
+                    Deposit.merchant == merchant,
+                    Deposit.transaction_date.like(f"{date_prefix}%")
+                )
+            ).order_by(Deposit.transaction_date).all()
+            
+            deposit_map = {d.transaction_date: d for d in deposits}
+            
             ledgers = session.query(AgentLedger).filter(
                 and_(
                     AgentLedger.merchant == merchant,
@@ -88,13 +95,13 @@ class AgentLedgerService:
             ledger_map = {lg.transaction_date: lg for lg in ledgers}
             
             for ledger in ledgers:
-                tx_row = tx_map.get(ledger.transaction_date)
-                if tx_row:
+                deposit = deposit_map.get(ledger.transaction_date)
+                if deposit:
                     rate_fpx = ledger.commission_rate_fpx or 0
                     rate_ewallet = ledger.commission_rate_ewallet or 0
                     
-                    avail_fpx = self._r((tx_row['available_fpx'] or 0) * rate_fpx / 100) if rate_fpx else 0
-                    avail_ewallet = self._r((tx_row['available_ewallet'] or 0) * rate_ewallet / 100) if rate_ewallet else 0
+                    avail_fpx = self._r((deposit.available_fpx or 0) * rate_fpx / 100) if rate_fpx else 0
+                    avail_ewallet = self._r((deposit.available_ewallet or 0) * rate_ewallet / 100) if rate_ewallet else 0
                     
                     ledger.available_fpx = avail_fpx
                     ledger.available_ewallet = avail_ewallet
@@ -104,12 +111,12 @@ class AgentLedgerService:
             session.commit()
             
             result = []
-            for tx_row in tx_data:
-                date = tx_row['transaction_date']
+            for deposit in deposits:
+                date = deposit.transaction_date
                 ledger = ledger_map.get(date)
                 
-                kira_fpx = tx_row['fpx_amount']
-                kira_ewallet = tx_row['ewallet_amount']
+                kira_fpx = deposit.fpx_amount or 0
+                kira_ewallet = deposit.ewallet_amount or 0
                 
                 rate_fpx = ledger.commission_rate_fpx if ledger else None
                 rate_ewallet = ledger.commission_rate_ewallet if ledger else None
