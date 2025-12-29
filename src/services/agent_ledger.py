@@ -92,11 +92,6 @@ class AgentLedgerService:
             
             ledger_map = {lg.transaction_date: lg for lg in ledgers}
             
-            for ledger in ledgers:
-                avail_fpx = ledger.available_fpx or 0
-                avail_ewallet = ledger.available_ewallet or 0
-                ledger.available_total = self._r(avail_fpx + avail_ewallet)
-            
             self._recalculate_balances(session, merchant)
             session.commit()
             
@@ -118,9 +113,9 @@ class AgentLedgerService:
                 if fpx_commission is not None or ewallet_commission is not None:
                     gross = self._r((fpx_commission or 0) + (ewallet_commission or 0))
                 
-                available_fpx = ledger.available_fpx if ledger else None
-                available_ewallet = ledger.available_ewallet if ledger else None
-                available_total = ledger.available_total if ledger else None
+                available_fpx = deposit.available_fpx
+                available_ewallet = deposit.available_ewallet
+                available_total = deposit.available_total
                 
                 row = {
                     'transaction_date': date,

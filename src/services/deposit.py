@@ -184,7 +184,7 @@ def _calculate_available_settlements(
     prev_kira = session.query(
         func.substr(KiraTransaction.transaction_date, 1, 10).label('tx_date'),
         KiraTransaction.payment_method,
-        func.sum(KiraTransaction.settlement_amount).label('settlement_amount'),
+        func.sum(KiraTransaction.amount).label('amount'),
     ).filter(
         KiraTransaction.merchant == merchant,
         KiraTransaction.transaction_date.like(f"{prev_date_prefix}%")
@@ -196,7 +196,7 @@ def _calculate_available_settlements(
     current_kira = session.query(
         func.substr(KiraTransaction.transaction_date, 1, 10).label('tx_date'),
         KiraTransaction.payment_method,
-        func.sum(KiraTransaction.settlement_amount).label('settlement_amount'),
+        func.sum(KiraTransaction.amount).label('amount'),
     ).filter(
         KiraTransaction.merchant == merchant,
         KiraTransaction.transaction_date.like(f"{date_prefix}%")
@@ -214,16 +214,16 @@ def _calculate_available_settlements(
     for row in list(prev_kira) + list(current_kira):
         channel = normalize_channel(row.payment_method)
         tx_date = row.tx_date
-        settlement_amount = row.settlement_amount or 0
+        amount = row.amount or 0
         
         if channel == 'FPX':
             settlement_date = calculate_settlement_date(tx_date, fpx_rule, public_holidays, add_on_holidays)
             if settlement_date and settlement_date.startswith(date_prefix):
-                fpx_settlement[settlement_date] = fpx_settlement.get(settlement_date, 0) + settlement_amount
+                fpx_settlement[settlement_date] = fpx_settlement.get(settlement_date, 0) + amount
         else:
             settlement_date = calculate_settlement_date(tx_date, ewallet_rule, public_holidays, add_on_holidays)
             if settlement_date and settlement_date.startswith(date_prefix):
-                ewallet_settlement[settlement_date] = ewallet_settlement.get(settlement_date, 0) + settlement_amount
+                ewallet_settlement[settlement_date] = ewallet_settlement.get(settlement_date, 0) + amount
     
     deposits = session.query(Deposit).filter(
         Deposit.merchant == merchant,
