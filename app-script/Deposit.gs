@@ -53,7 +53,9 @@ function updateDeposit() {
     const result = JSON.parse(response.getContentText());
 
     if (result.status === 'success' && result.data && result.data.data) {
-      sheet.getRange('A7:U50').clearContent();
+      const dataRange = sheet.getRange('A7:U50');
+      dataRange.clearContent();
+      dataRange.clearDataValidations();
 
       const data = result.data.data;
       const rows = data.map((row) => [

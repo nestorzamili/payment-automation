@@ -83,8 +83,6 @@ class AgentLedgerService:
                 )
             ).order_by(Deposit.transaction_date).all()
             
-            deposit_map = {d.transaction_date: d for d in deposits}
-            
             ledgers = session.query(AgentLedger).filter(
                 and_(
                     AgentLedger.merchant == merchant,
@@ -95,17 +93,9 @@ class AgentLedgerService:
             ledger_map = {lg.transaction_date: lg for lg in ledgers}
             
             for ledger in ledgers:
-                deposit = deposit_map.get(ledger.transaction_date)
-                if deposit:
-                    rate_fpx = ledger.commission_rate_fpx or 0
-                    rate_ewallet = ledger.commission_rate_ewallet or 0
-                    
-                    avail_fpx = self._r((deposit.available_fpx or 0) * rate_fpx / 100) if rate_fpx else 0
-                    avail_ewallet = self._r((deposit.available_ewallet or 0) * rate_ewallet / 100) if rate_ewallet else 0
-                    
-                    ledger.available_fpx = avail_fpx
-                    ledger.available_ewallet = avail_ewallet
-                    ledger.available_total = self._r(avail_fpx + avail_ewallet)
+                avail_fpx = ledger.available_fpx or 0
+                avail_ewallet = ledger.available_ewallet or 0
+                ledger.available_total = self._r(avail_fpx + avail_ewallet)
             
             self._recalculate_balances(session, merchant)
             session.commit()
@@ -121,8 +111,8 @@ class AgentLedgerService:
                 rate_fpx = ledger.commission_rate_fpx if ledger else None
                 rate_ewallet = ledger.commission_rate_ewallet if ledger else None
                 
-                fpx_commission = self._r(kira_fpx * rate_fpx / 100) if rate_fpx else None
-                ewallet_commission = self._r(kira_ewallet * rate_ewallet / 100) if rate_ewallet else None
+                fpx_commission = self._r(kira_fpx * rate_fpx / 10) if rate_fpx else None
+                ewallet_commission = self._r(kira_ewallet * rate_ewallet / 10) if rate_ewallet else None
                 
                 gross = None
                 if fpx_commission is not None or ewallet_commission is not None:
