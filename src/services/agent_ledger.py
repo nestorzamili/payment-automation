@@ -83,9 +83,13 @@ class AgentLedgerService:
                 )
             ).order_by(Deposit.transaction_date).all()
             
+            all_deposits = session.query(Deposit).filter(
+                Deposit.merchant == merchant
+            ).all()
+            
             fpx_by_settlement = {}
             ewallet_by_settlement = {}
-            for dep in deposits:
+            for dep in all_deposits:
                 if dep.fpx_settlement_date and dep.fpx_amount:
                     if dep.fpx_settlement_date not in fpx_by_settlement:
                         fpx_by_settlement[dep.fpx_settlement_date] = []
