@@ -83,6 +83,21 @@ class AgentLedgerService:
                 )
             ).order_by(Deposit.transaction_date).all()
             
+            fpx_by_settlement = {}
+            ewallet_by_settlement = {}
+            for dep in deposits:
+                if dep.fpx_settlement_date and dep.fpx_amount:
+                    if dep.fpx_settlement_date not in fpx_by_settlement:
+                        fpx_by_settlement[dep.fpx_settlement_date] = []
+                    fpx_by_settlement[dep.fpx_settlement_date].append(dep)
+                if dep.ewallet_settlement_date and dep.ewallet_amount:
+                    if dep.ewallet_settlement_date not in ewallet_by_settlement:
+                        ewallet_by_settlement[dep.ewallet_settlement_date] = []
+                    ewallet_by_settlement[dep.ewallet_settlement_date].append(dep)
+            
+            self._recalculate_balances(session, merchant)
+            session.commit()
+            
             ledgers = session.query(AgentLedger).filter(
                 and_(
                     AgentLedger.merchant == merchant,
@@ -91,9 +106,6 @@ class AgentLedgerService:
             ).order_by(AgentLedger.transaction_date).all()
             
             ledger_map = {lg.transaction_date: lg for lg in ledgers}
-            
-            self._recalculate_balances(session, merchant)
-            session.commit()
             
             result = []
             for deposit in deposits:
@@ -113,15 +125,17 @@ class AgentLedgerService:
                 if fpx_commission is not None or ewallet_commission is not None:
                     gross = self._r((fpx_commission or 0) + (ewallet_commission or 0))
                 
-                deposit_fpx = deposit.fpx_amount or 0
-                deposit_ewallet = deposit.ewallet_amount or 0
+                available_fpx = 0
+                if date in fpx_by_settlement and rate_fpx:
+                    fpx_sum = sum(d.fpx_amount or 0 for d in fpx_by_settlement[date])
+                    available_fpx = self._r(fpx_sum * rate_fpx / 1000) or 0
                 
-                available_fpx = self._r(deposit_fpx * rate_fpx / 1000) if rate_fpx else None
-                available_ewallet = self._r(deposit_ewallet * rate_ewallet / 1000) if rate_ewallet else None
+                available_ewallet = 0
+                if date in ewallet_by_settlement and rate_ewallet:
+                    ewallet_sum = sum(d.ewallet_amount or 0 for d in ewallet_by_settlement[date])
+                    available_ewallet = self._r(ewallet_sum * rate_ewallet / 1000) or 0
                 
-                available_total = None
-                if available_fpx is not None or available_ewallet is not None:
-                    available_total = self._r((available_fpx or 0) + (available_ewallet or 0))
+                available_total = self._r(available_fpx + available_ewallet)
                 
                 row = {
                     'transaction_date': date,
@@ -219,20 +233,39 @@ class AgentLedgerService:
         deposits = session.query(Deposit).filter(
             Deposit.merchant == merchant
         ).all()
-        deposit_map = {d.transaction_date: d for d in deposits}
+        
+        # Aggregate deposits by settlement date
+        fpx_by_settlement = {}
+        ewallet_by_settlement = {}
+        for dep in deposits:
+            if dep.fpx_settlement_date and dep.fpx_amount:
+                if dep.fpx_settlement_date not in fpx_by_settlement:
+                    fpx_by_settlement[dep.fpx_settlement_date] = []
+                fpx_by_settlement[dep.fpx_settlement_date].append(dep)
+            if dep.ewallet_settlement_date and dep.ewallet_amount:
+                if dep.ewallet_settlement_date not in ewallet_by_settlement:
+                    ewallet_by_settlement[dep.ewallet_settlement_date] = []
+                ewallet_by_settlement[dep.ewallet_settlement_date].append(dep)
         
         prev_balance = 0
         
         for row in rows:
-            deposit = deposit_map.get(row.transaction_date)
+            date = row.transaction_date
+            rate_fpx = row.commission_rate_fpx or 0
+            rate_ewallet = row.commission_rate_ewallet or 0
             
-            available_total = 0
-            if deposit:
-                rate_fpx = row.commission_rate_fpx or 0
-                rate_ewallet = row.commission_rate_ewallet or 0
-                avail_fpx = self._r((deposit.fpx_amount or 0) * rate_fpx / 1000) if rate_fpx else 0
-                avail_ewallet = self._r((deposit.ewallet_amount or 0) * rate_ewallet / 1000) if rate_ewallet else 0
-                available_total = (avail_fpx or 0) + (avail_ewallet or 0)
+            # Calculate available amounts based on settlement date
+            avail_fpx = 0
+            if date in fpx_by_settlement and rate_fpx:
+                fpx_sum = sum(d.fpx_amount or 0 for d in fpx_by_settlement[date])
+                avail_fpx = self._r(fpx_sum * rate_fpx / 1000) or 0
+            
+            avail_ewallet = 0
+            if date in ewallet_by_settlement and rate_ewallet:
+                ewallet_sum = sum(d.ewallet_amount or 0 for d in ewallet_by_settlement[date])
+                avail_ewallet = self._r(ewallet_sum * rate_ewallet / 1000) or 0
+            
+            available_total = avail_fpx + avail_ewallet
             
             has_activity = (
                 row.withdrawal_amount is not None 
