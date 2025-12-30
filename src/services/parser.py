@@ -13,6 +13,7 @@ from src.services.kira_pg import init_kira_pg
 from src.services.deposit import init_deposit
 from src.services.merchant_ledger import MerchantLedgerService
 from src.services.agent_ledger import AgentLedgerService
+from src.services.parameters import ParameterService
 
 logger = get_logger(__name__)
 
@@ -23,7 +24,7 @@ def run_parse_job(run_id: str) -> dict:
     _parse_kira_files(run_id)
     _parse_pg_files(run_id)
     
-    _load_parameters_from_sheet()
+    ParameterService.sync_from_sheet()
     
     init_kira_pg()
     init_deposit()
@@ -167,81 +168,3 @@ def _setup_dropdowns(merchants: list, periods: list):
         
     except Exception as e:
         logger.error(f"Failed to setup dropdowns: {e}")
-
-
-def _load_parameters_from_sheet():
-    try:
-        from src.services.client import SheetsClient
-        from src.core.models import Parameter
-        from sqlalchemy import and_
-        
-        client = SheetsClient()
-        session = get_session()
-        
-        try:
-            data = client.read_data('Parameter')
-            
-            if not data:
-                logger.info("No parameters found in sheet")
-                return
-            
-            header_row_idx = None
-            for idx, row in enumerate(data):
-                if len(row) >= 2 and row[0] == 'Type' and row[1] == 'Key':
-                    header_row_idx = idx
-                    break
-            
-            if header_row_idx is None:
-                logger.info("No valid header row found in Parameter sheet")
-                return
-            
-            headers = data[header_row_idx]
-            type_idx = headers.index('Type') if 'Type' in headers else 0
-            key_idx = headers.index('Key') if 'Key' in headers else 1
-            value_idx = headers.index('Value') if 'Value' in headers else 2
-            desc_idx = headers.index('Description') if 'Description' in headers else 3
-            
-            count = 0
-            for row in data[header_row_idx + 1:]:
-                if len(row) < 2:
-                    continue
-                
-                param_type = row[type_idx] if len(row) > type_idx else ''
-                param_key = (row[key_idx] if len(row) > key_idx else '').lower()
-                param_value = row[value_idx] if len(row) > value_idx else ''
-                param_desc = row[desc_idx] if len(row) > desc_idx else ''
-                
-                if not param_type or not param_key:
-                    continue
-                
-                existing = session.query(Parameter).filter(
-                    and_(
-                        Parameter.type == param_type,
-                        Parameter.key == param_key
-                    )
-                ).first()
-                
-                if existing:
-                    existing.value = param_value
-                    existing.description = param_desc
-                else:
-                    session.add(Parameter(
-                        type=param_type,
-                        key=param_key,
-                        value=param_value,
-                        description=param_desc
-                    ))
-                
-                count += 1
-            
-            session.commit()
-            logger.info(f"Loaded {count} parameters from sheet")
-            
-        except Exception as e:
-            session.rollback()
-            logger.error(f"Failed to load parameters: {e}")
-        finally:
-            session.close()
-            
-    except Exception as e:
-        logger.error(f"Failed to read parameters from sheet: {e}")

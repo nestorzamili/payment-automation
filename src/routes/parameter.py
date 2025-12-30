@@ -1,4 +1,4 @@
-from flask import Blueprint, request
+from flask import Blueprint
 
 from src.services.parameters import ParameterService
 from src.core.logger import get_logger
@@ -25,15 +25,12 @@ def get_parameters():
 @bp.route('/parameter', methods=['POST'])
 def update_parameters():
     try:
-        data = request.get_json() or {}
-        
-        service = ParameterService()
-        count = service.save_parameters(data)
+        count = ParameterService.sync_from_sheet()
         
         return jsend_success({
-            'message': f'Saved {count} parameters'
+            'message': f'Synced {count} parameters from sheet'
         })
             
     except Exception as e:
-        logger.error(f"Error updating parameters: {e}")
+        logger.error(f"Error syncing parameters: {e}")
         return jsend_error(str(e))

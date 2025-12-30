@@ -1,4 +1,4 @@
-from typing import Dict, List, Set, Any
+from typing import Dict, Set, Any
 
 from sqlalchemy import and_
 
@@ -10,9 +10,119 @@ logger = get_logger(__name__)
 
 
 class ParameterService:
+    _cache = None
     
-    def __init__(self):
-        pass
+    @classmethod
+    def load_parameters(cls) -> tuple[Dict[str, str], Set[str]]:
+        if cls._cache is None:
+            cls._cache = cls._fetch_from_db()
+        return cls._cache
+    
+    @classmethod
+    def clear_cache(cls):
+        cls._cache = None
+    
+    @staticmethod
+    def _fetch_from_db() -> tuple[Dict[str, str], Set[str]]:
+        session = get_session()
+        try:
+            params = session.query(Parameter).all()
+            settlement_rules = {}
+            add_on_holidays = set()
+            for p in params:
+                if p.type == 'SETTLEMENT_RULES':
+                    settlement_rules[p.key.lower()] = p.value
+                elif p.type == 'ADD_ON_HOLIDAYS':
+                    add_on_holidays.add(p.key)
+            return settlement_rules, add_on_holidays
+        finally:
+            session.close()
+    
+    @classmethod
+    def sync_from_sheet(cls) -> int:
+        from src.services.client import SheetsClient
+        
+        client = SheetsClient()
+        session = get_session()
+        
+        try:
+            data = client.read_data('Parameter')
+            
+            if not data:
+                logger.info("No parameters found in sheet")
+                return 0
+            
+            header_row_idx = None
+            for idx, row in enumerate(data):
+                if len(row) >= 3 and row[0] == 'ID' and row[1] == 'Type':
+                    header_row_idx = idx
+                    break
+            
+            if header_row_idx is None:
+                logger.info("No valid header row found in Parameter sheet")
+                return 0
+            
+            headers = data[header_row_idx]
+            id_idx = 0
+            type_idx = headers.index('Type') if 'Type' in headers else 1
+            key_idx = headers.index('Key') if 'Key' in headers else 2
+            value_idx = headers.index('Value') if 'Value' in headers else 3
+            desc_idx = headers.index('Description') if 'Description' in headers else 4
+            
+            sheet_params = set()
+            count = 0
+            
+            for row in data[header_row_idx + 1:]:
+                if len(row) < 3:
+                    continue
+                
+                param_type = str(row[type_idx]).strip() if len(row) > type_idx else ''
+                param_key = str(row[key_idx]).strip().lower() if len(row) > key_idx else ''
+                param_value = str(row[value_idx]).strip() if len(row) > value_idx else ''
+                param_desc = str(row[desc_idx]).strip() if len(row) > desc_idx else ''
+                
+                if not param_type or not param_key or param_key == '-':
+                    continue
+                
+                sheet_params.add((param_type, param_key))
+                
+                existing = session.query(Parameter).filter(
+                    and_(
+                        Parameter.type == param_type,
+                        Parameter.key == param_key
+                    )
+                ).first()
+                
+                if existing:
+                    existing.value = param_value
+                    existing.description = param_desc
+                else:
+                    session.add(Parameter(
+                        type=param_type,
+                        key=param_key,
+                        value=param_value,
+                        description=param_desc
+                    ))
+                
+                count += 1
+            
+            existing_all = session.query(Parameter).all()
+            for p in existing_all:
+                if (p.type, p.key) not in sheet_params:
+                    session.delete(p)
+                    logger.info(f"Deleted parameter: {p.type}/{p.key}")
+            
+            session.commit()
+            cls.clear_cache()
+            logger.info(f"Synced {count} parameters from sheet")
+            return count
+            
+        except Exception as e:
+            session.rollback()
+            logger.error(f"Failed to sync parameters: {e}")
+            raise
+        finally:
+            session.close()
     
     def get_all_parameters(self) -> Dict[str, Any]:
         session = get_session()
@@ -41,103 +151,9 @@ class ParameterService:
             session.close()
     
     def get_settlement_rules(self) -> Dict[str, str]:
-        session = get_session()
-        
-        try:
-            params = session.query(Parameter).filter(
-                Parameter.type == 'SETTLEMENT_RULES'
-            ).all()
-            
-            return {p.key.lower(): p.value for p in params}
-            
-        finally:
-            session.close()
+        rules, _ = self.load_parameters()
+        return rules
     
     def get_add_on_holidays(self) -> Set[str]:
-        session = get_session()
-        
-        try:
-            params = session.query(Parameter).filter(
-                Parameter.type == 'ADD_ON_HOLIDAYS'
-            ).all()
-            
-            return {p.key for p in params}
-            
-        finally:
-            session.close()
-    
-    def save_parameters(self, data: Dict[str, Any]) -> int:
-        session = get_session()
-        count = 0
-        
-        try:
-            if 'settlement_rules' in data:
-                for key, value in data['settlement_rules'].items():
-                    existing = session.query(Parameter).filter(
-                        and_(
-                            Parameter.type == 'SETTLEMENT_RULES',
-                            Parameter.key == key
-                        )
-                    ).first()
-                    
-                    if existing:
-                        existing.value = value
-                    else:
-                        session.add(Parameter(
-                            type='SETTLEMENT_RULES',
-                            key=key,
-                            value=value
-                        ))
-                    count += 1
-            
-            if 'add_on_holidays' in data:
-                existing_holidays = session.query(Parameter).filter(
-                    Parameter.type == 'ADD_ON_HOLIDAYS'
-                ).all()
-                existing_dates = {h.key for h in existing_holidays}
-                
-                new_dates = set()
-                for holiday in data['add_on_holidays']:
-                    date = holiday.get('date')
-                    description = holiday.get('description', '')
-                    
-                    if not date:
-                        continue
-                    
-                    new_dates.add(date)
-                    
-                    existing = session.query(Parameter).filter(
-                        and_(
-                            Parameter.type == 'ADD_ON_HOLIDAYS',
-                            Parameter.key == date
-                        )
-                    ).first()
-                    
-                    if existing:
-                        existing.description = description
-                    else:
-                        session.add(Parameter(
-                            type='ADD_ON_HOLIDAYS',
-                            key=date,
-                            description=description
-                        ))
-                    count += 1
-                
-                for date in existing_dates - new_dates:
-                    session.query(Parameter).filter(
-                        and_(
-                            Parameter.type == 'ADD_ON_HOLIDAYS',
-                            Parameter.key == date
-                        )
-                    ).delete()
-            
-            session.commit()
-            logger.info(f"Saved {count} parameters")
-            return count
-            
-        except Exception as e:
-            session.rollback()
-            logger.error(f"Failed to save parameters: {e}")
-            raise
-        finally:
-            session.close()
+        _, holidays = self.load_parameters()
+        return holidays

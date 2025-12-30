@@ -4,10 +4,11 @@ from calendar import monthrange
 from sqlalchemy import and_, func
 
 from src.core.database import get_session
-from src.core.models import Deposit, KiraTransaction, Parameter
+from src.core.models import Deposit, KiraTransaction
 from src.core.logger import get_logger
 from src.utils.helpers import normalize_channel, r, to_float, calculate_fee
 from src.utils.holiday import load_malaysia_holidays, calculate_settlement_date
+from src.services.parameters import ParameterService
 
 logger = get_logger(__name__)
 
@@ -16,7 +17,7 @@ def init_deposit():
     session = get_session()
     
     try:
-        settlement_rules, add_on_holidays = _load_parameters()
+        settlement_rules, add_on_holidays = ParameterService.load_parameters()
         public_holidays = load_malaysia_holidays()
         
         merchants = session.query(KiraTransaction.merchant).distinct().all()
@@ -141,25 +142,6 @@ def init_deposit():
         session.rollback()
         logger.error(f"Failed to init deposit: {e}")
         raise
-    finally:
-        session.close()
-
-
-def _load_parameters() -> tuple[Dict[str, str], Set[str]]:
-    session = get_session()
-    try:
-        params = session.query(Parameter).all()
-        
-        settlement_rules = {}
-        add_on_holidays = set()
-        
-        for p in params:
-            if p.type == 'SETTLEMENT_RULES':
-                settlement_rules[p.key.lower()] = p.value
-            elif p.type == 'ADD_ON_HOLIDAYS':
-                add_on_holidays.add(p.key)
-        
-        return settlement_rules, add_on_holidays
     finally:
         session.close()
 
