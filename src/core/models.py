@@ -307,11 +307,14 @@ class AgentLedger(Base):
     
     commission_rate_fpx = Column(Float)
     commission_rate_ewallet = Column(Float)
-    withdrawal_amount = Column(Float)
     
     available_fpx = Column(Float)
     available_ewallet = Column(Float)
     available_total = Column(Float)
+    
+    volume = Column(Float)
+    commission_rate = Column(Float)
+    commission_amount = Column(Float)
     
     balance = Column(Float)
     
@@ -331,7 +334,9 @@ class AgentLedger(Base):
             'transaction_date': self.transaction_date,
             'commission_rate_fpx': self._round(self.commission_rate_fpx),
             'commission_rate_ewallet': self._round(self.commission_rate_ewallet),
-            'withdrawal_amount': self._round(self.withdrawal_amount),
+            'volume': self._round(self.volume),
+            'commission_rate': self._round(self.commission_rate),
+            'commission_amount': self._round(self.commission_amount),
             'balance': self._round(self.balance),
             'updated_at': self.updated_at
         }

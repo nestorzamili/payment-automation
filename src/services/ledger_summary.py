@@ -72,6 +72,8 @@ class LedgerSummaryService:
                     avail_ewallet = (deposit.ewallet_amount or 0) * rate_ewallet / 1000 if rate_ewallet else 0
                     available_total = avail_fpx + avail_ewallet
                 
+                available_total += (ledger.commission_amount or 0)
+                
                 month = ledger.transaction_date[5:7]
                 results.append({
                     'merchant': ledger.merchant,

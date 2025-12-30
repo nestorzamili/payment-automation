@@ -34,6 +34,22 @@ class AgentLedgerService:
                 return None
         return None
     
+    def _aggregate_by_settlement(self, deposits):
+        fpx_by_settlement = {}
+        ewallet_by_settlement = {}
+        
+        for dep in deposits:
+            if dep.fpx_settlement_date and dep.fpx_amount:
+                if dep.fpx_settlement_date not in fpx_by_settlement:
+                    fpx_by_settlement[dep.fpx_settlement_date] = []
+                fpx_by_settlement[dep.fpx_settlement_date].append(dep)
+            if dep.ewallet_settlement_date and dep.ewallet_amount:
+                if dep.ewallet_settlement_date not in ewallet_by_settlement:
+                    ewallet_by_settlement[dep.ewallet_settlement_date] = []
+                ewallet_by_settlement[dep.ewallet_settlement_date].append(dep)
+        
+        return fpx_by_settlement, ewallet_by_settlement
+    
     def init_from_transactions(self, merchant: str, year: int, month: int):
         session = get_session()
         
@@ -76,30 +92,16 @@ class AgentLedgerService:
             
             date_prefix = f"{year}-{month:02d}"
             
-            deposits = session.query(Deposit).filter(
-                and_(
-                    Deposit.merchant == merchant,
-                    Deposit.transaction_date.like(f"{date_prefix}%")
-                )
-            ).order_by(Deposit.transaction_date).all()
-            
             all_deposits = session.query(Deposit).filter(
                 Deposit.merchant == merchant
-            ).all()
+            ).order_by(Deposit.transaction_date).all()
             
-            fpx_by_settlement = {}
-            ewallet_by_settlement = {}
-            for dep in all_deposits:
-                if dep.fpx_settlement_date and dep.fpx_amount:
-                    if dep.fpx_settlement_date not in fpx_by_settlement:
-                        fpx_by_settlement[dep.fpx_settlement_date] = []
-                    fpx_by_settlement[dep.fpx_settlement_date].append(dep)
-                if dep.ewallet_settlement_date and dep.ewallet_amount:
-                    if dep.ewallet_settlement_date not in ewallet_by_settlement:
-                        ewallet_by_settlement[dep.ewallet_settlement_date] = []
-                    ewallet_by_settlement[dep.ewallet_settlement_date].append(dep)
+            deposit_map = {d.transaction_date: d for d in all_deposits}
+            fpx_by_settlement, ewallet_by_settlement = self._aggregate_by_settlement(all_deposits)
             
-            self._recalculate_balances(session, merchant)
+            month_deposits = [d for d in all_deposits if d.transaction_date.startswith(date_prefix)]
+            
+            self._recalculate_balances(session, merchant, fpx_by_settlement, ewallet_by_settlement)
             session.commit()
             
             ledgers = session.query(AgentLedger).filter(
@@ -112,7 +114,7 @@ class AgentLedgerService:
             ledger_map = {lg.transaction_date: lg for lg in ledgers}
             
             result = []
-            for deposit in deposits:
+            for deposit in month_deposits:
                 date = deposit.transaction_date
                 ledger = ledger_map.get(date)
                 
@@ -153,7 +155,9 @@ class AgentLedgerService:
                     'available_fpx': available_fpx,
                     'available_ewallet': available_ewallet,
                     'available_total': available_total,
-                    'withdrawal_amount': ledger.withdrawal_amount if ledger else None,
+                    'volume': ledger.volume if ledger else None,
+                    'commission_rate': ledger.commission_rate if ledger else None,
+                    'commission_amount': ledger.commission_amount if ledger else None,
                     'balance': ledger.balance if ledger else None,
                     'updated_at': ledger.updated_at if ledger else None
                 }
@@ -208,11 +212,24 @@ class AgentLedgerService:
                 elif rate_ewallet_raw is not None:
                     existing.commission_rate_ewallet = self._to_float(rate_ewallet_raw)
                 
-                withdrawal_raw = row.get('withdrawal_amount')
-                if withdrawal_raw == 'CLEAR':
-                    existing.withdrawal_amount = None
-                elif withdrawal_raw is not None:
-                    existing.withdrawal_amount = self._to_float(withdrawal_raw)
+                volume_raw = row.get('volume')
+                if volume_raw == 'CLEAR':
+                    existing.volume = None
+                    existing.commission_amount = None
+                elif volume_raw is not None:
+                    existing.volume = self._to_float(volume_raw)
+                
+                rate_raw = row.get('commission_rate')
+                if rate_raw == 'CLEAR':
+                    existing.commission_rate = None
+                    existing.commission_amount = None
+                elif rate_raw is not None:
+                    existing.commission_rate = self._to_float(rate_raw)
+                
+                if existing.volume is not None and existing.commission_rate is not None:
+                    existing.commission_amount = self._r(existing.volume * existing.commission_rate)
+                else:
+                    existing.commission_amount = None
                 
                 count += 1
             
@@ -227,29 +244,20 @@ class AgentLedgerService:
         finally:
             session.close()
     
-    def _recalculate_balances(self, session, merchant: str):
+    def _recalculate_balances(self, session, merchant: str, 
+                               fpx_by_settlement: dict = None, 
+                               ewallet_by_settlement: dict = None):
         from src.core.models import Deposit
         
         rows = session.query(AgentLedger).filter(
             AgentLedger.merchant == merchant
         ).order_by(AgentLedger.transaction_date).all()
         
-        deposits = session.query(Deposit).filter(
-            Deposit.merchant == merchant
-        ).all()
-        
-        # Aggregate deposits by settlement date
-        fpx_by_settlement = {}
-        ewallet_by_settlement = {}
-        for dep in deposits:
-            if dep.fpx_settlement_date and dep.fpx_amount:
-                if dep.fpx_settlement_date not in fpx_by_settlement:
-                    fpx_by_settlement[dep.fpx_settlement_date] = []
-                fpx_by_settlement[dep.fpx_settlement_date].append(dep)
-            if dep.ewallet_settlement_date and dep.ewallet_amount:
-                if dep.ewallet_settlement_date not in ewallet_by_settlement:
-                    ewallet_by_settlement[dep.ewallet_settlement_date] = []
-                ewallet_by_settlement[dep.ewallet_settlement_date].append(dep)
+        if fpx_by_settlement is None or ewallet_by_settlement is None:
+            deposits = session.query(Deposit).filter(
+                Deposit.merchant == merchant
+            ).all()
+            fpx_by_settlement, ewallet_by_settlement = self._aggregate_by_settlement(deposits)
         
         prev_balance = 0
         
@@ -258,7 +266,6 @@ class AgentLedgerService:
             rate_fpx = row.commission_rate_fpx or 0
             rate_ewallet = row.commission_rate_ewallet or 0
             
-            # Calculate available amounts based on settlement date
             avail_fpx = 0
             if date in fpx_by_settlement and rate_fpx:
                 fpx_sum = sum(d.fpx_amount or 0 for d in fpx_by_settlement[date])
@@ -270,10 +277,11 @@ class AgentLedgerService:
                 avail_ewallet = self._r(ewallet_sum * rate_ewallet / 1000) or 0
             
             available_total = avail_fpx + avail_ewallet
+            commission_amount = row.commission_amount or 0
             
             has_activity = (
-                row.withdrawal_amount is not None 
-                or available_total > 0
+                available_total > 0
+                or commission_amount > 0
                 or prev_balance != 0
             )
             
@@ -281,7 +289,7 @@ class AgentLedgerService:
                 row.balance = self._r(
                     prev_balance 
                     + available_total 
-                    - (row.withdrawal_amount or 0)
+                    + commission_amount
                 )
             else:
                 row.balance = None
@@ -301,7 +309,8 @@ class AgentLedgerService:
                 'kira_amount_ewallet', 'commission_rate_ewallet', 'ewallet_commission',
                 'gross_amount',
                 'available_fpx', 'available_ewallet', 'available_total',
-                'withdrawal_amount', 'balance'
+                'volume', 'commission_rate', 'commission_amount',
+                'balance'
             ]
             
             rows = []
