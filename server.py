@@ -1,17 +1,14 @@
 import atexit
 import logging
-import os
 import signal
-import subprocess
 import sys
-from pathlib import Path
 from typing import Any
 
 from flask import Flask, request
 
 from src.core import get_logger, load_settings, setup_logger
 from src.routes import PUBLIC_ENDPOINTS, register_routes
-from src.utils import jsend_fail
+from src.utils import jsend_fail, get_ssh_tunnel
 
 setup_logger()
 logger = get_logger(__name__)
@@ -61,144 +58,7 @@ def log_response(response):
     return response
 
 
-class SSHTunnel:
-    def __init__(self):
-        self._process: Any = None
-        self._config: dict = settings.get('ssh_tunnel', {})
-
-    @property
-    def is_enabled(self) -> bool:
-        return self._config.get('enabled', False)
-
-    @property
-    def is_running(self) -> bool:
-        return self._process is not None and self._process.poll() is None
-
-    def _get_ssh_key_path(self) -> Path:
-        ssh_key = self._config.get('ssh_key')
-        if ssh_key:
-            return Path(ssh_key).expanduser()
-        return Path.home() / '.ssh' / 'id_rsa'
-
-    def _validate_config(self) -> tuple[bool, str]:
-        if not self._config.get('remote_host'):
-            return False, "remote_host not configured"
-
-        ssh_key_path = self._get_ssh_key_path()
-        if not ssh_key_path.exists():
-            return False, f"SSH key not found: {ssh_key_path}"
-
-        if os.name != 'nt':
-            key_stat = ssh_key_path.stat()
-            if key_stat.st_mode & 0o077:
-                logger.warning(f"SSH key {ssh_key_path} has insecure permissions")
-
-        return True, ""
-
-    def _build_command(self) -> list[str]:
-        ssh_key_path = self._get_ssh_key_path()
-        remote_host = self._config['remote_host']
-        remote_port = self._config.get('remote_port', 9000)
-        local_port = flask_config.get('port', 5000)
-
-        return [
-            'ssh',
-            '-i', str(ssh_key_path),
-            '-N',
-            '-T',
-            '-R', f'127.0.0.1:{remote_port}:127.0.0.1:{local_port}',
-            '-o', 'ExitOnForwardFailure=yes',
-            '-o', 'ServerAliveInterval=30',
-            '-o', 'ServerAliveCountMax=3',
-            '-o', 'StrictHostKeyChecking=accept-new',
-            '-o', 'BatchMode=yes',
-            '-o', 'ConnectTimeout=10',
-            remote_host
-        ]
-
-    def start(self) -> bool:
-        if not self.is_enabled:
-            logger.info("SSH tunnel is disabled")
-            return False
-
-        if self.is_running:
-            logger.warning("SSH tunnel is already running")
-            return True
-
-        is_valid, error_msg = self._validate_config()
-        if not is_valid:
-            logger.error(f"SSH tunnel config error: {error_msg}")
-            return False
-
-        remote_host = self._config['remote_host']
-        remote_port = self._config.get('remote_port', 9000)
-        local_port = flask_config.get('port', 5000)
-
-        try:
-            logger.info(f"Starting SSH tunnel")
-
-            if os.name == 'nt':
-                self._process = subprocess.Popen(
-                    self._build_command(),
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.PIPE,
-                    stdin=subprocess.DEVNULL,
-                    creationflags=subprocess.CREATE_NO_WINDOW
-                )
-            else:
-                self._process = subprocess.Popen(
-                    self._build_command(),
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.PIPE,
-                    stdin=subprocess.DEVNULL,
-                    start_new_session=True
-                )
-
-            try:
-                self._process.wait(timeout=3)
-                stderr = self._process.stderr
-                if stderr:
-                    error_output = stderr.read().decode().strip()
-                    logger.error(f"SSH tunnel failed: {error_output or 'Unknown error'}")
-                else:
-                    logger.error("SSH tunnel failed: Unknown error")
-                self._process = None
-                return False
-            except subprocess.TimeoutExpired:
-                logger.info("SSH tunnel established successfully")
-                return True
-
-        except FileNotFoundError:
-            logger.error("SSH client not found. Please install OpenSSH.")
-            return False
-        except Exception as e:
-            logger.error(f"Failed to start SSH tunnel: {e}")
-            self._process = None
-            return False
-
-    def stop(self) -> None:
-        if not self.is_running:
-            return
-
-        if self._process is None:
-            return
-
-        try:
-            self._process.terminate()
-            self._process.wait(timeout=5)
-        except subprocess.TimeoutExpired:
-            logger.warning("SSH tunnel didn't terminate gracefully, forcing...")
-            if self._process:
-                self._process.kill()
-                self._process.wait()
-        except Exception as e:
-            logger.error(f"Error stopping SSH tunnel: {e}")
-        finally:
-            self._process = None
-            logger.info("SSH tunnel stopped")
-
-
-ssh_tunnel = SSHTunnel()
+ssh_tunnel = get_ssh_tunnel()
 
 
 def signal_handler(signum: int, frame: Any) -> None:
