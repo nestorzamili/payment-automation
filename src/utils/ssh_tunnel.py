@@ -42,15 +42,22 @@ class SSHTunnel:
             return False, f"SSH key not found: {ssh_key_path}"
 
         if os.name == 'nt':
-            self._fix_key_permissions(ssh_key_path)
+            self._fix_key_permissions_windows(ssh_key_path)
         else:
-            key_stat = ssh_key_path.stat()
-            if key_stat.st_mode & 0o077:
-                logger.warning(f"SSH key {ssh_key_path} has insecure permissions")
+            self._fix_key_permissions_unix(ssh_key_path)
 
         return True, ""
 
-    def _fix_key_permissions(self, key_path: Path) -> None:
+    def _fix_key_permissions_unix(self, key_path: Path) -> None:
+        try:
+            current_mode = key_path.stat().st_mode
+            if current_mode & 0o077:
+                key_path.chmod(0o600)
+                logger.info(f"Fixed SSH key permissions: {key_path}")
+        except Exception as e:
+            logger.warning(f"Failed to fix SSH key permissions: {e}")
+
+    def _fix_key_permissions_windows(self, key_path: Path) -> None:
         try:
             key_path_str = str(key_path.resolve())
             username = os.environ.get('USERNAME', '')
