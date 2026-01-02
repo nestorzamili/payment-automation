@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from datetime import datetime, timedelta, date
 from typing import Tuple, Optional
 from zoneinfo import ZoneInfo

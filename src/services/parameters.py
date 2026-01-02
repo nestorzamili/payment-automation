@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from typing import Dict, Set, Any
 
 from sqlalchemy import and_
