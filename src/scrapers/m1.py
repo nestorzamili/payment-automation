@@ -16,6 +16,7 @@ logger = get_logger(__name__)
 class M1Scraper(BaseScraper):
     
     LOGIN_PATH = "/user/login"
+    TARGET_PATH = "/transaction/fpx-list"
     FPX_PATH = "/transaction/fpx-list"
     EWALLET_PATH = "/transaction/e-wallet"
     
@@ -48,9 +49,6 @@ class M1Scraper(BaseScraper):
     
     async def _download_fpx(self, page: Page, download_dir: Path, from_date: str, to_date: str) -> List[Path]:
         logger.info("Downloading FPX transactions")
-        
-        await page.goto(f"{self.base_url}{self.FPX_PATH}")
-        await page.wait_for_load_state('networkidle')
         
         file_path = await self._search_and_export(
             page, download_dir, from_date, to_date,
@@ -111,7 +109,6 @@ class M1Scraper(BaseScraper):
         await page.get_by_label("To Date").fill(formatted_to)
         
         logger.info("Selecting Transaction Status: SUCCESS")
-        # Find mat-form-field containing "Transaction Status" text and click its mat-select
         await page.evaluate('''
             const fields = Array.from(document.querySelectorAll("mat-form-field"));
             const statusField = fields.find(f => f.innerText.includes("Transaction Status"));
@@ -130,34 +127,32 @@ class M1Scraper(BaseScraper):
         logger.info("Clicking Search button")
         await page.get_by_role("button", name="search").click()
         
-        # Wait for loading to complete
-        await page.wait_for_load_state('networkidle')
-        
-        # Wait for spinner/loading indicator to disappear if present
-        spinner = page.locator('.mat-progress-spinner, .loading, mat-spinner')
+        spinner = page.locator('.loading-app, .spinner')
         try:
-            await spinner.wait_for(state='hidden', timeout=30000)
+            await spinner.first.wait_for(state='visible', timeout=3000)
+            await spinner.first.wait_for(state='hidden', timeout=self.timeout)
         except:
             pass
         
-        await asyncio.sleep(2)
+        await page.wait_for_load_state('networkidle')
+        await asyncio.sleep(1)
         
-        no_data_msg = page.locator('.message:has-text("There is no data")')
-        table_rows = page.locator('table tbody tr')
+        table_rows = page.locator('#excel-table tr:has(td)')
+        no_data_msg = page.locator('.message:text-matches("There is no data", "i")')
         
-        # Wait longer for table data to appear
-        try:
-            await table_rows.first.wait_for(state='visible', timeout=15000)
-        except:
-            # Double check for no data message
-            if await no_data_msg.count() > 0:
-                logger.info(f"No data found for {filename}")
-                return None
-            # Maybe still loading, wait more
-            await asyncio.sleep(3)
-            if await table_rows.count() == 0:
-                logger.info(f"No data found for {filename}")
-                return None
+        if await no_data_msg.count() > 0:
+            logger.info(f"No data found for {filename}")
+            return None
+        
+        row_count = await table_rows.count()
+        if row_count > 0:
+            logger.info(f"Found {row_count} rows in table")
+        else:
+            logger.info(f"No data found for {filename}")
+            return None
+        
+        await page.evaluate('window.scrollTo(0, document.body.scrollHeight)')
+        await asyncio.sleep(0.5)
         
         export_button = page.get_by_role("button", name="Export All", exact=True)
         

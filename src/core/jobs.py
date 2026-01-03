@@ -58,7 +58,9 @@ class JobManager:
         self, 
         job_id: int, 
         status: str, 
-        desc: str = None
+        desc: str = None,
+        filename: str = None,
+        transactions_count: int = None
     ):
         session = get_session()
         try:
@@ -68,6 +70,10 @@ class JobManager:
                 job.updated_at = datetime.now(KL_TZ).strftime('%Y-%m-%d %H:%M:%S')
                 if desc is not None:
                     job.desc = desc
+                if filename is not None:
+                    job.filename = filename
+                if transactions_count is not None:
+                    job.transactions_count = transactions_count
                 session.commit()
         finally:
             session.close()

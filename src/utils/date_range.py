@@ -4,8 +4,6 @@ from datetime import datetime, timedelta, date
 from typing import Tuple, Optional
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import func
-
 from src.core.database import get_session
 from src.core.models import Job
 from src.core.logger import get_logger
@@ -13,7 +11,7 @@ from src.core.logger import get_logger
 logger = get_logger(__name__)
 KL_TZ = ZoneInfo('Asia/Kuala_Lumpur')
 MAX_RANGE_DAYS = 30
-DEFAULT_START_DATE = date(2025, 10, 1)
+DEFAULT_START_DATE = date(2025, 12, 1)
 
 
 class DateRangeService:
@@ -58,4 +56,3 @@ class DateRangeService:
             to_date = today
         
         return from_date.strftime('%Y-%m-%d'), to_date.strftime('%Y-%m-%d')
-
