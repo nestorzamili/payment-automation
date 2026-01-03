@@ -9,14 +9,7 @@ class SessionManager:
     
     @staticmethod
     def session_exists(session_path: Path) -> bool:
-        exists = session_path.exists() and session_path.is_file()
-        
-        if exists:
-            logger.info(f"Session found: {session_path}")
-        else:
-            logger.info(f"No session found: {session_path}")
-        
-        return exists
+        return session_path.exists() and session_path.is_file()
     
     @staticmethod
     def delete_session(session_path: Path):

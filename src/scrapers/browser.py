@@ -1,5 +1,6 @@
+import asyncio
 from pathlib import Path
-from typing import Optional
+from typing import List, Optional
 
 from playwright.async_api import Browser, BrowserContext, Page, async_playwright
 
@@ -7,6 +8,32 @@ from src.core.loader import load_settings
 from src.core.logger import get_logger
 
 logger = get_logger(__name__)
+
+_active_browsers: List['BrowserManager'] = []
+
+
+def cleanup_all_browsers():
+    global _active_browsers
+    if not _active_browsers:
+        return
+    
+    logger.info(f"Closing {len(_active_browsers)} active browser(s)...")
+    
+    async def _cleanup():
+        for browser_manager in _active_browsers[:]:
+            try:
+                await browser_manager.close()
+            except Exception:
+                pass
+    
+    try:
+        loop = asyncio.get_running_loop()
+        loop.run_until_complete(_cleanup())
+    except RuntimeError:
+        asyncio.run(_cleanup())
+    
+    _active_browsers.clear()
+    logger.info("All browsers closed")
 
 
 class BrowserManager:
@@ -41,6 +68,9 @@ class BrowserManager:
             args=launch_args
         )
         self.headless = headless
+        
+        # Register for graceful shutdown
+        _active_browsers.append(self)
         
     async def create_context(self, session_path: Optional[Path] = None) -> BrowserContext:
         if not self.browser:
@@ -81,11 +111,17 @@ class BrowserManager:
             raise
     
     async def close(self):
+        # Unregister from global registry
+        if self in _active_browsers:
+            _active_browsers.remove(self)
+        
         if self.browser:
             await self.browser.close()
+            self.browser = None
             
         if self.playwright:
             await self.playwright.stop()
+            self.playwright = None
 
 
 async def create_page_with_kl_settings(context: BrowserContext) -> Page:

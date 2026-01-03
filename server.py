@@ -8,6 +8,7 @@ from flask import Flask, request
 
 from src.core import get_logger, load_settings, setup_logger
 from src.routes import PUBLIC_ENDPOINTS, register_routes
+from src.scrapers import cleanup_all_browsers
 from src.utils import jsend_fail, get_ssh_tunnel
 
 setup_logger()
@@ -62,6 +63,7 @@ ssh_tunnel = get_ssh_tunnel()
 
 
 def signal_handler(signum: int, frame: Any) -> None:
+    cleanup_all_browsers()
     ssh_tunnel.stop()
     sys.exit(0)
 

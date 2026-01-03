@@ -28,7 +28,17 @@ class AxaiScraper(BaseScraper):
             return False
     
     async def fill_login_credentials(self, page: Page):
-        pass
+        username_input = page.locator('input[name="username"]')
+        await username_input.wait_for(state='visible', timeout=self.timeout)
+        
+        await username_input.fill(self.credentials['email'])
+        await human_delay(0.5, 1.0)
+        
+        password_input = page.locator('input[name="password"]')
+        await password_input.fill(self.credentials['password'])
+        await human_delay(0.5, 1.0)
+        
+        logger.info(f"Waiting for manual captcha: {self.label}")
     
     async def submit_login(self, page: Page):
         pass
@@ -39,11 +49,9 @@ class AxaiScraper(BaseScraper):
             timeout=0
         )
         await page.wait_for_load_state('networkidle')
-        logger.info(f"Login successful, redirected to: {page.url}")
+        logger.info(f"Login successful: {self.label}")
     
     async def navigate_to_payment_details(self, page: Page):
-        logger.info("Navigating to Payment Details...")
-        
         payment_dropdown = page.locator('#topnav-user-Interface5000')
         await payment_dropdown.hover()
         await human_delay(1.0, 2.0)
@@ -56,8 +64,6 @@ class AxaiScraper(BaseScraper):
         
         search_button = page.locator('button:has-text("Search")')
         await search_button.wait_for(state='visible', timeout=self.timeout)
-        
-        logger.info("Successfully navigated to Payment Details page")
     
     async def select_transaction_status(self, page: Page):
         select2_container = page.locator('select[name="status[]"]').locator('xpath=..').locator('.select2-selection')
@@ -120,12 +126,8 @@ class AxaiScraper(BaseScraper):
         return [file_path]
     
     async def download_files(self, page: Page, download_dir: Path, from_date: str, to_date: str) -> List[Path]:
-        logger.info(f"Downloading AXAI: {from_date} to {to_date}")
         download_dir.mkdir(parents=True, exist_ok=True)
         await self.navigate_to_payment_details(page)
-        logger.info("Selecting transaction status")
         await self.select_transaction_status(page)
-        logger.info(f"Filling date range: {from_date} to {to_date}")
         await self.fill_date_range(page, from_date, to_date)
-        logger.info("Searching and exporting")
         return await self.search_and_export(page, download_dir, from_date, to_date)

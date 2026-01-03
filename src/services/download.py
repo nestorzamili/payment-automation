@@ -33,6 +33,7 @@ def run_download_jobs(jobs: List[Tuple[int, dict]], from_date: str, to_date: str
                     job_manager.update_job(job_id, 'completed', filename=filename, transactions_count=len(files))
                 except Exception as e:
                     error_msg = str(e).split('Call log:')[0].strip()
+                    logger.error(f"Download failed: {account['label']} - {error_msg}")
                     job_manager.update_job(job_id, 'failed', desc=error_msg)
     
     asyncio.run(run())
