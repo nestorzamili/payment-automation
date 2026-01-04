@@ -51,7 +51,7 @@ function updateKiraPG() {
     const result = JSON.parse(response.getContentText());
 
     if (result.status === 'success' && result.data && result.data.data) {
-      sheet.getRange('A4:P300').clearContent();
+      sheet.getRange('A4:Q300').clearContent();
 
       const data = result.data.data;
       const rows = data.map((row) => [
@@ -65,6 +65,7 @@ function updateKiraPG() {
         row.transaction_count ?? '',
         row.settlement_rule ?? '',
         row.settlement_date ?? '',
+        row.fee_type ?? '',
         row.fee_rate ?? '',
         row.fees ?? '',
         row.settlement_amount ?? '',
@@ -74,7 +75,7 @@ function updateKiraPG() {
       ]);
 
       if (rows.length > 0) {
-        sheet.getRange(4, 1, rows.length, 16).setValues(rows);
+        sheet.getRange(4, 1, rows.length, 17).setValues(rows);
       }
     }
   } catch (error) {
@@ -83,7 +84,7 @@ function updateKiraPG() {
 }
 
 function readKiraPGManualData(sheet) {
-  const data = sheet.getRange('A4:P300').getValues();
+  const data = sheet.getRange('A4:Q300').getValues();
   const manualData = [];
 
   for (let i = 0; i < data.length; i++) {
@@ -91,17 +92,19 @@ function readKiraPGManualData(sheet) {
     const pgMerchant = row[0];
     const channel = row[1];
     const pgDate = row[5];
-    const feeRate = row[10];
-    const remarks = row[15];
+    const feeType = row[10];
+    const feeRate = row[11];
+    const remarks = row[16];
 
     if (!pgDate || !pgMerchant) continue;
     
-    if (feeRate === '' && remarks === '') continue;
+    if (feeType === '' && feeRate === '' && remarks === '') continue;
 
     manualData.push({
       pg_merchant: pgMerchant,
       pg_date: formatDate(pgDate),
       channel: channel,
+      fee_type: feeType !== '' ? feeType : null,
       fee_rate: feeRate !== '' ? feeRate : null,
       remarks: remarks !== '' ? remarks : null,
     });

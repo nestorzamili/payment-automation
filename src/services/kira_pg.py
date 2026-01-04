@@ -92,11 +92,12 @@ def init_kira_pg():
             daily_variance = r(kira_data['kira_amount'] - pg_data['pg_amount'])
             
             existing_record = existing_map.get(key)
+            fee_type = existing_record.fee_type if existing_record else None
             fee_rate = existing_record.fee_rate if existing_record else None
             remarks = existing_record.remarks if existing_record else None
             
-            fees = r(pg_data['pg_amount'] * fee_rate / 100) if fee_rate else None
-            settlement_amount = r(pg_data['pg_amount'] - fees) if fees else None
+            fees = _calculate_fee(fee_type, fee_rate, pg_data['pg_amount'])
+            settlement_amount = r(pg_data['pg_amount'] - fees) if fees is not None else None
             
             records.append({
                 'key': key,
@@ -110,6 +111,7 @@ def init_kira_pg():
                 'volume': pg_data['volume'],
                 'settlement_rule': settlement_rule,
                 'settlement_date': settlement_date,
+                'fee_type': fee_type,
                 'fee_rate': fee_rate,
                 'fees': fees,
                 'settlement_amount': settlement_amount,
@@ -147,6 +149,14 @@ def init_kira_pg():
 
 def _get_settlement_rule(rules: Dict[str, str], channel: str) -> str:
     return rules.get(channel.lower(), 'T+1')
+
+
+def _calculate_fee(fee_type: Optional[str], fee_rate: Optional[float], amount: Optional[float]) -> Optional[float]:
+    if fee_rate is None:
+        return None
+    if fee_type == 'flat':
+        return r(fee_rate)
+    return r(amount * fee_rate / 100) if amount else None
 
 
 class KiraPGService:
@@ -187,6 +197,7 @@ class KiraPGService:
             'transaction_count': record.volume,
             'settlement_rule': record.settlement_rule,
             'settlement_date': record.settlement_date,
+            'fee_type': record.fee_type,
             'fee_rate': record.fee_rate,
             'fees': record.fees,
             'settlement_amount': record.settlement_amount,
@@ -220,8 +231,14 @@ class KiraPGService:
                 if not existing:
                     continue
                 
+                fee_type_raw = row.get('fee_type')
                 fee_rate_raw = row.get('fee_rate')
                 remarks_raw = row.get('remarks')
+                
+                if fee_type_raw == 'CLEAR':
+                    existing.fee_type = None
+                elif fee_type_raw is not None:
+                    existing.fee_type = str(fee_type_raw).lower()
                 
                 if fee_rate_raw == 'CLEAR':
                     existing.fee_rate = None
@@ -233,12 +250,9 @@ class KiraPGService:
                 elif remarks_raw is not None and str(remarks_raw).strip():
                     existing.remarks = str(remarks_raw).strip()
                 
-                if existing.fee_rate is not None and existing.pg_amount:
-                    existing.fees = r(existing.pg_amount * existing.fee_rate / 100)
-                    existing.settlement_amount = r(existing.pg_amount - existing.fees)
-                else:
-                    existing.fees = None
-                    existing.settlement_amount = None
+                fees = _calculate_fee(existing.fee_type, existing.fee_rate, existing.pg_amount)
+                existing.fees = fees
+                existing.settlement_amount = r(existing.pg_amount - fees) if fees is not None else None
                 
                 affected_dates.add(date[:7])
                 count += 1

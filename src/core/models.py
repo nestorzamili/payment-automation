@@ -119,6 +119,7 @@ class KiraPG(Base):
     settlement_rule = Column(String(10))
     settlement_date = Column(String(10))
     
+    fee_type = Column(String(20))
     fee_rate = Column(Float)
     fees = Column(Float)
     settlement_amount = Column(Float)
@@ -149,6 +150,7 @@ class KiraPG(Base):
             'volume': self.volume,
             'settlement_rule': self.settlement_rule,
             'settlement_date': self.settlement_date,
+            'fee_type': self.fee_type,
             'fee_rate': self._r(self.fee_rate),
             'fees': self._r(self.fees),
             'settlement_amount': self._r(self.settlement_amount),
