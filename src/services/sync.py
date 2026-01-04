@@ -142,23 +142,7 @@ def _run_full_sync(run_id: str):
         if all_jobs:
             _run_download_jobs(all_jobs, run_id)
         
-        parse_job_id = job_manager.create_job(
-            job_type='parse',
-            run_id=run_id,
-            platform='all',
-            account_label='all'
-        )
-        _update_sheet(run_id)
-        
-        job_manager.update_job(parse_job_id, 'running')
-        _update_sheet(run_id)
-        
-        try:
-            run_parse_job(run_id)
-            job_manager.update_job(parse_job_id, 'completed')
-        except Exception as e:
-            job_manager.update_job(parse_job_id, 'failed', desc=str(e))
-        
+        run_parse_job(run_id)
         _update_sheet(run_id)
         logger.info(f"Full sync completed: {run_id}")
         
@@ -213,23 +197,7 @@ def _run_parse_only(run_id: str):
     global _sync_running, _current_run_id
     
     try:
-        parse_job_id = job_manager.create_job(
-            job_type='parse',
-            run_id=run_id,
-            platform='all',
-            account_label='all'
-        )
-        _update_sheet(run_id)
-        
-        job_manager.update_job(parse_job_id, 'running')
-        _update_sheet(run_id)
-        
-        try:
-            run_parse_job(run_id)
-            job_manager.update_job(parse_job_id, 'completed')
-        except Exception as e:
-            job_manager.update_job(parse_job_id, 'failed', desc=str(e))
-        
+        run_parse_job(run_id)
         _update_sheet(run_id)
         logger.info(f"Parse only completed: {run_id}")
         

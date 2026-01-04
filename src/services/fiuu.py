@@ -1,15 +1,14 @@
 import hashlib
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import List
 
 import requests
-from sqlalchemy import and_
 from sqlalchemy.dialects.sqlite import insert
 
 from src.core.database import get_session
 from src.core.loader import load_settings
 from src.core.logger import get_logger
-from src.core.models import PGTransaction, Job
+from src.core.models import PGTransaction
 
 logger = get_logger(__name__)
 
@@ -39,54 +38,14 @@ class FiuuAPIClient:
             return 'FPX'
         return 'ewallet'
     
-    def _get_fetched_dates(self) -> set:
-        session = get_session()
-        try:
-            jobs = session.query(Job).filter(
-                and_(
-                    Job.job_type == 'download',
-                    Job.platform == 'fiuu',
-                    Job.account_label == self.label,
-                    Job.status == 'completed'
-                )
-            ).all()
-            
-            fetched_dates = set()
-            for job in jobs:
-                if job.from_date and job.to_date:
-                    from_dt = datetime.strptime(job.from_date, '%Y-%m-%d')
-                    to_dt = datetime.strptime(job.to_date, '%Y-%m-%d')
-                    current = from_dt
-                    while current <= to_dt:
-                        fetched_dates.add(current.strftime('%Y-%m-%d'))
-                        current += timedelta(days=1)
-            
-            return fetched_dates
-        finally:
-            session.close()
-    
-    def _get_unfetched_dates(self, from_date: str, to_date: str) -> List[str]:
-        fetched = self._get_fetched_dates()
-        
+    def _calculate_duration_seconds(self, from_date: str, to_date: str) -> int:
         from_dt = datetime.strptime(from_date, '%Y-%m-%d')
         to_dt = datetime.strptime(to_date, '%Y-%m-%d')
-        
-        unfetched = []
-        current = from_dt
-        while current <= to_dt:
-            date_str = current.strftime('%Y-%m-%d')
-            if date_str not in fetched:
-                unfetched.append(date_str)
-            current += timedelta(days=1)
-        
-        return unfetched
-    
+        days_count = (to_dt - from_dt).days + 1
+        return days_count * 86400
+
     def fetch_transactions(self, from_date: str, to_date: str) -> List[dict]:
-        from_dt = datetime.strptime(from_date, '%Y-%m-%d')
-        to_dt = datetime.strptime(to_date, '%Y-%m-%d')
-        
-        duration_seconds = int((to_dt - from_dt).total_seconds()) + 86400
-        
+        duration_seconds = self._calculate_duration_seconds(from_date, to_date)
         signature = self._generate_signature(from_date)
         
         params = {
@@ -101,7 +60,7 @@ class FiuuAPIClient:
         
         url = f"{self.base_url}{self.ENDPOINT_DAILY}"
         
-        logger.info(f"Fetching Fiuu: {self.label} ({from_date} to {to_date})")
+        logger.info(f"Fetching Fiuu: {self.label} ({from_date} to {to_date}, {duration_seconds}s)")
         
         response = requests.get(url, params=params, timeout=self.timeout)
         response.raise_for_status()
@@ -150,18 +109,7 @@ class FiuuAPIClient:
             session.close()
     
     def fetch_and_store(self, from_date: str, to_date: str) -> int:
-        unfetched = self._get_unfetched_dates(from_date, to_date)
+        logger.info(f"Fetching Fiuu: {self.label} ({from_date} to {to_date})")
         
-        if not unfetched:
-            logger.info(f"All dates already fetched: {self.label} ({from_date} to {to_date})")
-            return 0
-        
-        logger.info(f"Unfetched dates: {len(unfetched)} of {self.label}")
-        
-        total_saved = 0
-        for date in unfetched:
-            transactions = self.fetch_transactions(date, date)
-            saved = self.save_transactions(transactions)
-            total_saved += saved
-        
-        return total_saved
+        transactions = self.fetch_transactions(from_date, to_date)
+        return self.save_transactions(transactions)

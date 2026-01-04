@@ -52,6 +52,7 @@ function updateKiraPG() {
 
     if (result.status === 'success' && result.data && result.data.data) {
       sheet.getRange('A4:Q300').clearContent();
+      sheet.getRange('A4:Q300').clearDataValidations();
 
       const data = result.data.data;
       const rows = data.map((row) => [
@@ -76,6 +77,13 @@ function updateKiraPG() {
 
       if (rows.length > 0) {
         sheet.getRange(4, 1, rows.length, 17).setValues(rows);
+        
+        const feeTypeRule = SpreadsheetApp.newDataValidation()
+          .requireValueInList(['percentage', 'flat'], true)
+          .setAllowInvalid(false)
+          .build();
+        
+        sheet.getRange(4, 11, rows.length, 1).setDataValidation(feeTypeRule);
       }
     }
   } catch (error) {

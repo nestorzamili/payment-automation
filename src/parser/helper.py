@@ -111,12 +111,26 @@ def complete_parse_job(job_id: int, transactions_count: int):
             job.updated_at = now
             session.commit()
             logger.debug(f"Completed parse job: {job_id} ({transactions_count} txn)")
+            
+            _update_jobs_sheet(job.run_id)
     except Exception as e:
         session.rollback()
         logger.error(f"Failed to complete parse job: {e}")
         raise
     finally:
         session.close()
+
+
+def _update_jobs_sheet(run_id: str):
+    if not run_id:
+        return
+    try:
+        from src.core.jobs import job_manager
+        from src.services.job_sheet import JobSheetService
+        jobs = job_manager.list_jobs(run_id=run_id)
+        JobSheetService.update_jobs_sheet(jobs)
+    except Exception as e:
+        logger.debug(f"Failed to update jobs sheet: {e}")
 
 
 def fail_parse_job(job_id: int, error: str):
