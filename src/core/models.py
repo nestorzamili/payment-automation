@@ -17,12 +17,13 @@ class Job(Base):
     job_type = Column(String(50), nullable=False)
     platform = Column(String(20), nullable=False)
     account_label = Column(String(100), nullable=False)
+    source_type = Column(String(20))
     from_date = Column(String(10))
     to_date = Column(String(10))
     status = Column(String(20), nullable=False, default='pending')
-    filename = Column(String(255))
-    transactions_count = Column(Integer, default=0)
-    desc = Column(Text)
+    fetched_count = Column(Integer, default=0)
+    stored_count = Column(Integer, default=0)
+    error_message = Column(Text)
     created_at = Column(String(30), nullable=False, default=_now_kl)
     updated_at = Column(String(30), nullable=False, default=_now_kl, onupdate=_now_kl)
 
@@ -33,12 +34,13 @@ class Job(Base):
             'job_type': self.job_type,
             'platform': self.platform,
             'account_label': self.account_label,
+            'source_type': self.source_type,
             'from_date': self.from_date,
             'to_date': self.to_date,
             'status': self.status,
-            'filename': self.filename,
-            'transactions_count': self.transactions_count,
-            'desc': self.desc,
+            'fetched_count': self.fetched_count,
+            'stored_count': self.stored_count,
+            'error_message': self.error_message,
             'created_at': self.created_at,
             'updated_at': self.updated_at,
         }

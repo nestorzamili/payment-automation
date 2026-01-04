@@ -6,9 +6,6 @@ from src.services.client import SheetsClient
 
 logger = get_logger(__name__)
 
-JOBS_HEADER_ROW = 3
-JOBS_START_ROW = 4
-
 
 class JobSheetService:
     _client = None
@@ -43,20 +40,22 @@ class JobSheetService:
                     j.get('job_type', ''),
                     j.get('platform', ''),
                     j.get('account_label', ''),
+                    j.get('source_type', ''),
                     date_range,
                     j.get('status', ''),
-                    j.get('transactions_count', 0) or 0,
-                    j.get('desc', ''),
+                    j.get('fetched_count', 0) or 0,
+                    j.get('stored_count', 0) or 0,
+                    j.get('error_message', ''),
                     j.get('created_at', ''),
                     j.get('updated_at', ''),
                 ])
             
-            clear_range = f'A{JOBS_START_ROW}:J300'
+            clear_range = f'A4:L100'
             jobs_sheet = cls.get_jobs_sheet_name()
             worksheet = client.spreadsheet.worksheet(jobs_sheet)
             worksheet.batch_clear([clear_range])
             
-            client.write_data(jobs_sheet, rows, f'A{JOBS_START_ROW}')
+            client.write_data(jobs_sheet, rows, f'A4')
             logger.debug(f"Updated Jobs sheet with {len(rows)} rows")
             
         except Exception as e:
@@ -73,10 +72,12 @@ class JobSheetService:
                 job.get('job_type', ''),
                 job.get('platform', ''),
                 job.get('account_label', ''),
+                job.get('source_type', ''),
                 date_range,
                 job.get('status', ''),
-                job.get('transactions_count', 0) or 0,
-                job.get('desc', ''),
+                job.get('fetched_count', 0) or 0,
+                job.get('stored_count', 0) or 0,
+                job.get('error_message', ''),
                 job.get('created_at', ''),
                 job.get('updated_at', ''),
             ]]

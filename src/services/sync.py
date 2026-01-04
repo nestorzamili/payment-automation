@@ -211,11 +211,13 @@ def _run_parse_only(run_id: str):
 def _create_download_jobs(run_id: str, accounts: list, from_date: str, to_date: str) -> List[Tuple[int, dict, str, str]]:
     jobs = []
     for account in accounts:
+        source_type = 'api' if account['platform'] == 'fiuu' else 'browser'
         job_id = job_manager.create_job(
             job_type='download',
             run_id=run_id,
             platform=account['platform'],
             account_label=account['label'],
+            source_type=source_type,
             from_date=from_date,
             to_date=to_date
         )
@@ -227,41 +229,39 @@ def _run_download_jobs(jobs: List[Tuple[int, dict, str, str]], run_id: str):
     import asyncio
     
     async def run():
-        fiuu_jobs = [(j, a, f, t) for j, a, f, t in jobs if a['platform'] == 'fiuu']
-        playwright_jobs = [(j, a, f, t) for j, a, f, t in jobs if a['platform'] != 'fiuu']
+        api_jobs = [job for job in jobs if job[1]['platform'] == 'fiuu']
+        browser_jobs = [job for job in jobs if job[1]['platform'] != 'fiuu']
         
-        for job_id, account, from_date, to_date in fiuu_jobs:
+        for job_id, account, from_date, to_date in api_jobs:
             job_manager.update_job(job_id, 'running')
             _update_sheet(run_id)
             try:
                 from src.services.fiuu import FiuuAPIClient
                 client = FiuuAPIClient(account)
-                count = client.fetch_and_store(from_date, to_date)
-                job_manager.update_job(job_id, 'completed', transactions_count=count)
+                fetched, stored = client.fetch_and_store(from_date, to_date)
+                job_manager.update_job(job_id, 'completed', fetched_count=fetched, stored_count=stored)
             except Exception as e:
                 from src.core.logger import clean_error_msg
                 error_msg = clean_error_msg(e)
                 logger.error(f"Download failed: {account['label']} - {error_msg}")
-                job_manager.update_job(job_id, 'failed', desc=error_msg)
+                job_manager.update_job(job_id, 'failed', error_message=error_msg)
             _update_sheet(run_id)
         
-        if playwright_jobs:
+        if browser_jobs:
             async with BrowserManager() as browser_manager:
-                for job_id, account, from_date, to_date in playwright_jobs:
+                for job_id, account, from_date, to_date in browser_jobs:
                     job_manager.update_job(job_id, 'running')
                     _update_sheet(run_id)
                     try:
                         scraper_class = get_scraper_class(account['platform'])
                         scraper = scraper_class(account)
                         files = await scraper.download_data(browser_manager, from_date, to_date)
-                        filenames = [f.name for f in files]
-                        filename = ','.join(filenames) if filenames else None
-                        job_manager.update_job(job_id, 'completed', filename=filename, transactions_count=len(files))
+                        job_manager.update_job(job_id, 'completed', fetched_count=len(files), stored_count=len(files))
                     except Exception as e:
                         from src.core.logger import clean_error_msg
                         error_msg = clean_error_msg(e)
                         logger.error(f"Download failed: {account['label']} - {error_msg}")
-                        job_manager.update_job(job_id, 'failed', desc=error_msg)
+                        job_manager.update_job(job_id, 'failed', error_message=error_msg)
                     _update_sheet(run_id)
     
     asyncio.run(run())

@@ -25,6 +25,7 @@ class JobManager:
         run_id: str = None,
         platform: str = None,
         account_label: str = None,
+        source_type: str = None,
         from_date: str = None,
         to_date: str = None
     ) -> int:
@@ -37,6 +38,7 @@ class JobManager:
                 job_type=job_type,
                 platform=platform,
                 account_label=account_label,
+                source_type=source_type,
                 from_date=from_date,
                 to_date=to_date,
                 status='pending',
@@ -54,9 +56,9 @@ class JobManager:
         self, 
         job_id: int, 
         status: str, 
-        desc: str = None,
-        filename: str = None,
-        transactions_count: int = None
+        error_message: str = None,
+        fetched_count: int = None,
+        stored_count: int = None
     ):
         session = get_session()
         try:
@@ -64,12 +66,12 @@ class JobManager:
             if job:
                 job.status = status
                 job.updated_at = datetime.now(get_timezone()).strftime('%Y-%m-%d %H:%M:%S')
-                if desc is not None:
-                    job.desc = desc
-                if filename is not None:
-                    job.filename = filename
-                if transactions_count is not None:
-                    job.transactions_count = transactions_count
+                if error_message is not None:
+                    job.error_message = error_message
+                if fetched_count is not None:
+                    job.fetched_count = fetched_count
+                if stored_count is not None:
+                    job.stored_count = stored_count
                 session.commit()
         finally:
             session.close()
@@ -84,12 +86,12 @@ class JobManager:
             running = sum(1 for j in jobs if j.status == 'running')
             completed = sum(1 for j in jobs if j.status == 'completed')
             failed = sum(1 for j in jobs if j.status == 'failed')
-            total_transactions = sum(j.transactions_count or 0 for j in jobs)
+            total_stored = sum(j.stored_count or 0 for j in jobs)
             
             platforms = {}
             for j in jobs:
                 if j.platform:
-                    platforms[j.platform] = platforms.get(j.platform, 0) + (j.transactions_count or 0)
+                    platforms[j.platform] = platforms.get(j.platform, 0) + (j.stored_count or 0)
             
             status = 'running' if running > 0 else 'completed'
             
@@ -99,7 +101,7 @@ class JobManager:
                 'total_jobs': len(jobs),
                 'completed': completed,
                 'failed': failed,
-                'total_transactions': total_transactions,
+                'total_stored': total_stored,
                 'platforms': platforms
             }
         finally:
@@ -138,7 +140,7 @@ class JobManager:
             except Exception as e:
                 from src.core.logger import clean_error_msg
                 error_msg = clean_error_msg(e)
-                self.update_job(job_id, 'failed', desc=error_msg)
+                self.update_job(job_id, 'failed', error_message=error_msg)
 
         thread = threading.Thread(target=wrapper, daemon=True)
         thread.start()

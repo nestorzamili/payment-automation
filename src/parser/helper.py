@@ -38,9 +38,9 @@ def extract_date_range_from_filename(filename: str) -> Tuple[Optional[str], Opti
     return None, None
 
 
-def get_parsed_files(account_label: str = None, platform: str = None) -> Set[str]:
+def get_parsed_date_ranges(account_label: str = None, platform: str = None) -> Set[Tuple[str, str]]:
     session = get_session()
-    parsed_files = set()
+    parsed_ranges = set()
     
     try:
         query = session.query(Job).filter(
@@ -59,18 +59,17 @@ def get_parsed_files(account_label: str = None, platform: str = None) -> Set[str
         jobs = query.all()
         
         for job in jobs:
-            if job.filename:
-                parsed_files.add(job.filename)
+            if job.from_date and job.to_date:
+                parsed_ranges.add((job.from_date, job.to_date))
         
-        return parsed_files
+        return parsed_ranges
     finally:
         session.close()
 
 
-def start_parse_job(filename: str, account_label: str, platform: str, run_id: str = None) -> int:
+def start_parse_job(from_date: str, to_date: str, account_label: str, platform: str, run_id: str = None) -> int:
     session = get_session()
     now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-    from_date, to_date = extract_date_range_from_filename(filename)
     
     try:
         job = Job(
@@ -78,10 +77,10 @@ def start_parse_job(filename: str, account_label: str, platform: str, run_id: st
             job_type='parse',
             platform=platform,
             account_label=account_label,
+            source_type='file',
             from_date=from_date,
             to_date=to_date,
             status='running',
-            filename=filename,
             created_at=now,
             updated_at=now
         )
@@ -89,7 +88,7 @@ def start_parse_job(filename: str, account_label: str, platform: str, run_id: st
         session.commit()
         session.refresh(job)
         
-        logger.debug(f"Started parse job: {filename} ({platform})")
+        logger.debug(f"Started parse job: {platform}/{account_label} ({from_date} to {to_date})")
         return job.job_id
     except Exception as e:
         session.rollback()
@@ -99,7 +98,7 @@ def start_parse_job(filename: str, account_label: str, platform: str, run_id: st
         session.close()
 
 
-def complete_parse_job(job_id: int, transactions_count: int):
+def complete_parse_job(job_id: int, fetched_count: int, stored_count: int):
     session = get_session()
     now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     
@@ -107,10 +106,11 @@ def complete_parse_job(job_id: int, transactions_count: int):
         job = session.query(Job).filter_by(job_id=job_id).first()
         if job:
             job.status = 'completed'
-            job.transactions_count = transactions_count
+            job.fetched_count = fetched_count
+            job.stored_count = stored_count
             job.updated_at = now
             session.commit()
-            logger.debug(f"Completed parse job: {job_id} ({transactions_count} txn)")
+            logger.debug(f"Completed parse job: {job_id} ({stored_count} stored)")
             
             _update_jobs_sheet(job.run_id)
     except Exception as e:
@@ -141,7 +141,7 @@ def fail_parse_job(job_id: int, error: str):
         job = session.query(Job).filter_by(job_id=job_id).first()
         if job:
             job.status = 'failed'
-            job.desc = error
+            job.error_message = error
             job.updated_at = now
             session.commit()
             logger.debug(f"Failed parse job: {job_id}")

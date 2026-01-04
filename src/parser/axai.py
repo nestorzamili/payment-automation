@@ -9,7 +9,7 @@ from sqlalchemy.dialects.sqlite import insert
 from src.core.database import get_session
 from src.core.models import PGTransaction
 from src.core.logger import get_logger
-from src.parser.helper import get_parsed_files, start_parse_job, complete_parse_job, fail_parse_job, normalize_channel
+from src.parser.helper import get_parsed_date_ranges, extract_date_range_from_filename, start_parse_job, complete_parse_job, fail_parse_job, normalize_channel
 
 logger = get_logger(__name__)
 
@@ -105,8 +105,12 @@ class AxaiParser:
         excel_files = list(directory.glob('*.xlsx'))
         excel_files = [f for f in excel_files if not f.name.startswith('~$')]
         
-        parsed_files = get_parsed_files(account_label, 'axai')
-        new_files = [f for f in excel_files if f.name not in parsed_files]
+        parsed_ranges = get_parsed_date_ranges(account_label, 'axai')
+        new_files = []
+        for f in excel_files:
+            from_date, to_date = extract_date_range_from_filename(f.name)
+            if from_date and to_date and (from_date, to_date) not in parsed_ranges:
+                new_files.append((f, from_date, to_date))
         
         result = {
             'account_label': account_label,
@@ -115,8 +119,8 @@ class AxaiParser:
             'total_transactions': 0
         }
         
-        for file_path in new_files:
-            job_id = start_parse_job(file_path.name, account_label, 'axai', run_id)
+        for file_path, from_date, to_date in new_files:
+            job_id = start_parse_job(from_date, to_date, account_label, 'axai', run_id)
             
             try:
                 logger.info(f"Processing: {file_path.name}")
@@ -126,9 +130,9 @@ class AxaiParser:
                     saved = self.save_transactions(transactions)
                     result['files_processed'] += 1
                     result['total_transactions'] += saved
-                    complete_parse_job(job_id, saved)
+                    complete_parse_job(job_id, len(transactions), saved)
                 else:
-                    complete_parse_job(job_id, 0)
+                    complete_parse_job(job_id, 0, 0)
             except Exception as e:
                 fail_parse_job(job_id, str(e))
                 logger.error(f"Error processing {file_path.name}: {e}")

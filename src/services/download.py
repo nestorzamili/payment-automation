@@ -21,38 +21,36 @@ def get_date_range(platform: str) -> tuple[str, str] | None:
 
 def run_download_jobs(jobs: List[Tuple[int, dict]], from_date: str, to_date: str):
     async def run():
-        playwright_jobs = [(job_id, acc) for job_id, acc in jobs if acc['platform'] != 'fiuu']
-        fiuu_jobs = [(job_id, acc) for job_id, acc in jobs if acc['platform'] == 'fiuu']
+        api_jobs = [(job_id, acc) for job_id, acc in jobs if acc['platform'] == 'fiuu']
+        browser_jobs = [(job_id, acc) for job_id, acc in jobs if acc['platform'] != 'fiuu']
         
-        for job_id, account in fiuu_jobs:
+        for job_id, account in api_jobs:
             job_manager.update_job(job_id, 'running')
             try:
                 from src.services.fiuu import FiuuAPIClient
                 client = FiuuAPIClient(account)
-                count = client.fetch_and_store(from_date, to_date)
-                job_manager.update_job(job_id, 'completed', transactions_count=count)
+                fetched, stored = client.fetch_and_store(from_date, to_date)
+                job_manager.update_job(job_id, 'completed', fetched_count=fetched, stored_count=stored)
             except Exception as e:
                 from src.core.logger import clean_error_msg
                 error_msg = clean_error_msg(e)
                 logger.error(f"Download failed: {account['label']} - {error_msg}")
-                job_manager.update_job(job_id, 'failed', desc=error_msg)
+                job_manager.update_job(job_id, 'failed', error_message=error_msg)
         
-        if playwright_jobs:
+        if browser_jobs:
             async with BrowserManager() as browser_manager:
-                for job_id, account in playwright_jobs:
+                for job_id, account in browser_jobs:
                     job_manager.update_job(job_id, 'running')
                     try:
                         scraper_class = get_scraper_class(account['platform'])
                         scraper = scraper_class(account)
                         files = await scraper.download_data(browser_manager, from_date, to_date)
-                        filenames = [f.name for f in files]
-                        filename = ','.join(filenames) if filenames else None
-                        job_manager.update_job(job_id, 'completed', filename=filename, transactions_count=len(files))
+                        job_manager.update_job(job_id, 'completed', fetched_count=len(files), stored_count=len(files))
                     except Exception as e:
                         from src.core.logger import clean_error_msg
                         error_msg = clean_error_msg(e)
                         logger.error(f"Download failed: {account['label']} - {error_msg}")
-                        job_manager.update_job(job_id, 'failed', desc=error_msg)
+                        job_manager.update_job(job_id, 'failed', error_message=error_msg)
     
     asyncio.run(run())
 
@@ -63,11 +61,13 @@ def start_platform_download(platform: str, accounts: list, from_date: str, to_da
     
     jobs = []
     for account in accounts:
+        source_type = 'api' if platform == 'fiuu' else 'browser'
         job_id = job_manager.create_job(
             job_type=job_type,
             run_id=run_id,
             platform=platform,
             account_label=account['label'],
+            source_type=source_type,
             from_date=from_date,
             to_date=to_date
         )
@@ -96,11 +96,13 @@ def start_account_download(account: dict, from_date: str, to_date: str) -> dict:
     label = account['label']
     platform = account['platform']
     
+    source_type = 'api' if platform == 'fiuu' else 'browser'
     job_id = job_manager.create_job(
         job_type=job_type,
         run_id=run_id,
         platform=platform,
         account_label=label,
+        source_type=source_type,
         from_date=from_date,
         to_date=to_date
     )

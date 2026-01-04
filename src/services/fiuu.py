@@ -108,8 +108,9 @@ class FiuuAPIClient:
         finally:
             session.close()
     
-    def fetch_and_store(self, from_date: str, to_date: str) -> int:
+    def fetch_and_store(self, from_date: str, to_date: str) -> tuple[int, int]:
         logger.info(f"Fetching Fiuu: {self.label} ({from_date} to {to_date})")
         
         transactions = self.fetch_transactions(from_date, to_date)
-        return self.save_transactions(transactions)
+        stored = self.save_transactions(transactions)
+        return len(transactions), stored
