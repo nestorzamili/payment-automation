@@ -2,17 +2,15 @@ from abc import ABC, abstractmethod
 from datetime import datetime
 from pathlib import Path
 from typing import List
-from zoneinfo import ZoneInfo
 
 from playwright.async_api import Page
 
 from src.scrapers.browser import BrowserManager, create_page_with_kl_settings
-from src.core.loader import get_download_path, get_session_path, load_settings
+from src.core.loader import get_download_path, get_session_path, get_timezone, load_settings
 from src.core.logger import get_logger
 from src.scrapers.session import SessionManager
 
 logger = get_logger(__name__)
-KL_TZ = ZoneInfo('Asia/Kuala_Lumpur')
 
 
 class BaseScraper(ABC):
@@ -109,7 +107,8 @@ class BaseScraper(ABC):
             return downloaded_files
             
         except Exception as e:
-            error_msg = str(e).split('Call log:')[0].strip()
+            from src.core.logger import clean_error_msg
+            error_msg = clean_error_msg(e)
             logger.error(f"Download failed: {self.label} - {error_msg}")
             raise
         finally:
@@ -156,7 +155,8 @@ class BaseScraper(ABC):
             logger.info(f"Download completed: {self.label} ({len(downloaded_files)} files)")
             return downloaded_files
         except Exception as e:
-            error_msg = str(e).split('Call log:')[0].strip()
+            from src.core.logger import clean_error_msg
+            error_msg = clean_error_msg(e)
             logger.error(f"Download failed: {self.label} - {error_msg}")
             raise
         finally:

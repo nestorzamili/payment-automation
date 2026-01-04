@@ -99,7 +99,7 @@ class KiraScraper(BaseScraper):
         logger.info("Clicking Download button")
         download_btn = first_row.locator('button[ng-click^="downloadReport"]')
         
-        async with page.expect_download() as download_info:
+        async with page.expect_download(timeout=self.download_timeout) as download_info:
             await download_btn.click()
         
         download = await download_info.value

@@ -1,10 +1,10 @@
 from sqlalchemy import create_engine
 from sqlalchemy.orm import declarative_base, sessionmaker, scoped_session
 
-from src.core.loader import PROJECT_ROOT
+from src.core.loader import PROJECT_ROOT, load_settings
 
-
-DATABASE_PATH = PROJECT_ROOT / 'data' / 'app.db'
+settings = load_settings()
+DATABASE_PATH = PROJECT_ROOT / settings['database']['path']
 DATABASE_PATH.parent.mkdir(parents=True, exist_ok=True)
 
 engine = create_engine(

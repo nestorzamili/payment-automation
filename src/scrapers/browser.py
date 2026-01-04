@@ -64,7 +64,7 @@ class BrowserManager:
         self.playwright = await async_playwright().start()
         self.browser = await self.playwright.chromium.launch(
             headless=headless,
-            slow_mo=100,
+            slow_mo=self.settings['browser'].get('slow_mo', 100),
             args=launch_args
         )
         self.headless = headless
@@ -88,7 +88,8 @@ class BrowserManager:
         }
         
         if self.headless:
-            context_options['viewport'] = {'width': 1920, 'height': 1080}
+            viewport = self.settings['browser'].get('viewport', {'width': 1920, 'height': 1080})
+            context_options['viewport'] = viewport
         else:
             context_options['no_viewport'] = True
         

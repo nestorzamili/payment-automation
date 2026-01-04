@@ -3,14 +3,10 @@ from __future__ import annotations
 import threading
 from datetime import datetime
 from typing import Callable, List
-from zoneinfo import ZoneInfo
 
 from src.core.database import get_session
+from src.core.loader import get_timezone
 from src.core.models import Job
-
-
-KL_TZ = ZoneInfo('Asia/Kuala_Lumpur')
-
 
 class JobManager:
     _instance = None
@@ -32,7 +28,7 @@ class JobManager:
         from_date: str = None,
         to_date: str = None
     ) -> int:
-        now = datetime.now(KL_TZ).strftime('%Y-%m-%d %H:%M:%S')
+        now = datetime.now(get_timezone()).strftime('%Y-%m-%d %H:%M:%S')
         
         session = get_session()
         try:
@@ -67,7 +63,7 @@ class JobManager:
             job = session.query(Job).filter_by(job_id=job_id).first()
             if job:
                 job.status = status
-                job.updated_at = datetime.now(KL_TZ).strftime('%Y-%m-%d %H:%M:%S')
+                job.updated_at = datetime.now(get_timezone()).strftime('%Y-%m-%d %H:%M:%S')
                 if desc is not None:
                     job.desc = desc
                 if filename is not None:
@@ -90,13 +86,11 @@ class JobManager:
             failed = sum(1 for j in jobs if j.status == 'failed')
             total_transactions = sum(j.transactions_count or 0 for j in jobs)
             
-            # Sum transactions per platform
             platforms = {}
             for j in jobs:
                 if j.platform:
                     platforms[j.platform] = platforms.get(j.platform, 0) + (j.transactions_count or 0)
             
-            # Status is 'running' if any job is still running
             status = 'running' if running > 0 else 'completed'
             
             return {
@@ -142,7 +136,8 @@ class JobManager:
                 func(*args, **kwargs)
                 self.update_job(job_id, 'completed')
             except Exception as e:
-                error_msg = str(e).split('Call log:')[0].strip()
+                from src.core.logger import clean_error_msg
+                error_msg = clean_error_msg(e)
                 self.update_job(job_id, 'failed', desc=error_msg)
 
         thread = threading.Thread(target=wrapper, daemon=True)

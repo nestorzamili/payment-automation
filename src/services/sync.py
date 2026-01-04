@@ -239,7 +239,8 @@ def _run_download_jobs(jobs: List[Tuple[int, dict, str, str]], run_id: str):
                 count = client.fetch_and_store(from_date, to_date)
                 job_manager.update_job(job_id, 'completed', transactions_count=count)
             except Exception as e:
-                error_msg = str(e).split('Call log:')[0].strip()
+                from src.core.logger import clean_error_msg
+                error_msg = clean_error_msg(e)
                 logger.error(f"Download failed: {account['label']} - {error_msg}")
                 job_manager.update_job(job_id, 'failed', desc=error_msg)
             _update_sheet(run_id)
@@ -257,7 +258,8 @@ def _run_download_jobs(jobs: List[Tuple[int, dict, str, str]], run_id: str):
                         filename = ','.join(filenames) if filenames else None
                         job_manager.update_job(job_id, 'completed', filename=filename, transactions_count=len(files))
                     except Exception as e:
-                        error_msg = str(e).split('Call log:')[0].strip()
+                        from src.core.logger import clean_error_msg
+                        error_msg = clean_error_msg(e)
                         logger.error(f"Download failed: {account['label']} - {error_msg}")
                         job_manager.update_job(job_id, 'failed', desc=error_msg)
                     _update_sheet(run_id)

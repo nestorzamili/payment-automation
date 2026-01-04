@@ -2,13 +2,11 @@ import re
 import requests
 from datetime import datetime, timedelta
 from typing import Set
-from zoneinfo import ZoneInfo
 
+from src.core.loader import get_timezone
 from src.core.logger import get_logger
 
 logger = get_logger(__name__)
-
-KL_TZ = ZoneInfo('Asia/Kuala_Lumpur')
 MALAYSIA_HOLIDAYS_URL = "https://calendar.google.com/calendar/ical/en.malaysia%23holiday@group.v.calendar.google.com/public/basic.ics"
 
 
@@ -86,7 +84,7 @@ def calculate_settlement_date(
             return ''
         
         year, month, day = map(int, date_parts)
-        current_date = datetime(year, month, day, tzinfo=KL_TZ)
+        current_date = datetime(year, month, day, tzinfo=get_timezone())
     except Exception:
         return ''
     

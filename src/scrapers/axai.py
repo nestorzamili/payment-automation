@@ -115,7 +115,7 @@ class AxaiScraper(BaseScraper):
         
         await human_delay(0.5, 1.0)
         
-        async with page.expect_download() as download_info:
+        async with page.expect_download(timeout=self.download_timeout) as download_info:
             excel_button = page.locator('a[href*="exportExcel"]')
             await excel_button.click()
         

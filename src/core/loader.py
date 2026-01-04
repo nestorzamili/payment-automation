@@ -1,8 +1,17 @@
 import json
+from functools import lru_cache
 from pathlib import Path
 from typing import Dict, Any, List
+from zoneinfo import ZoneInfo
 
 PROJECT_ROOT = Path(__file__).parent.parent.parent
+
+
+@lru_cache(maxsize=1)
+def get_timezone() -> ZoneInfo:
+    """Get timezone from settings. Cached for performance."""
+    settings = load_settings()
+    return ZoneInfo(settings['timezone'])
 
 
 def load_settings() -> Dict[str, Any]:
@@ -47,7 +56,8 @@ def get_spreadsheet_id() -> str:
 
 
 def get_session_path(label: str) -> Path:
-    return PROJECT_ROOT / 'sessions' / f"{label}.json"
+    settings = load_settings()
+    return PROJECT_ROOT / settings['sessions']['path'] / f"{label}.json"
 
 
 def get_download_path(label: str) -> Path:

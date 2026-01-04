@@ -1,14 +1,12 @@
 from datetime import datetime
-from zoneinfo import ZoneInfo
 
 from sqlalchemy import Column, String, Float, Text, Integer, Index
 
 from src.core.database import Base
-
-KL_TZ = ZoneInfo('Asia/Kuala_Lumpur')
+from src.core.loader import get_timezone
 
 def _now_kl():
-    return datetime.now(KL_TZ).strftime('%Y-%m-%d %H:%M:%S')
+    return datetime.now(get_timezone()).strftime('%Y-%m-%d %H:%M:%S')
 
 
 class Job(Base):

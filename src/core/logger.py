@@ -2,16 +2,15 @@ import logging
 import sys
 from datetime import datetime
 from pathlib import Path
-from zoneinfo import ZoneInfo
 
 from loguru import logger
 
 PROJECT_ROOT = Path(__file__).parent.parent.parent
-KL_TZ = ZoneInfo('Asia/Kuala_Lumpur')
 
 
 def get_kl_timestamp():
-    return datetime.now(KL_TZ).strftime("%Y-%m-%d %H:%M:%S")
+    from src.core.loader import get_timezone
+    return datetime.now(get_timezone()).strftime("%Y-%m-%d %H:%M:%S")
 
 
 class InterceptHandler(logging.Handler):
@@ -42,11 +41,12 @@ def setup_logger():
         level="INFO",
         colorize=True
     )
-    
-    log_dir = PROJECT_ROOT / 'logs'
+    from src.core.loader import get_timezone, load_settings
+    settings = load_settings()
+    log_dir = PROJECT_ROOT / settings['logging']['directory']
     log_dir.mkdir(exist_ok=True)
     
-    kl_date = datetime.now(KL_TZ).strftime("%Y-%m-%d")
+    kl_date = datetime.now(get_timezone()).strftime("%Y-%m-%d")
     log_file = log_dir / f"{kl_date}.log"
     
     logger.add(
@@ -68,3 +68,11 @@ def setup_logger():
 def get_logger(name: str):
     setup_logger()
     return logger.bind(name=name)
+
+
+def clean_error_msg(error: Exception) -> str:
+    """Clean Playwright error message by removing Call log and separator lines."""
+    msg = str(error).split('Call log:')[0].strip()
+    lines = msg.split('\n')
+    cleaned_lines = [line for line in lines if not line.strip().replace('=', '').replace(' ', '') == '']
+    return '\n'.join(cleaned_lines).strip()
