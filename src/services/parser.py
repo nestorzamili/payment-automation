@@ -8,7 +8,6 @@ from src.core.models import KiraTransaction
 from src.parser.m1 import M1Parser
 from src.parser.axai import AxaiParser
 from src.parser.kira import KiraParser
-from src.parser.fiuu import FiuuParser
 from src.services.kira_pg import init_kira_pg
 from src.services.deposit import init_deposit
 from src.services.merchant_ledger import MerchantLedgerService
@@ -52,9 +51,9 @@ def _parse_kira_files(run_id: str):
 
 def _parse_pg_files(run_id: str):
     accounts = load_accounts()
-    pg_accounts = [a for a in accounts if a['platform'] in ('m1', 'axai', 'fiuu')]
+    pg_accounts = [a for a in accounts if a['platform'] in ('m1', 'axai')]
     
-    parsers = {'m1': M1Parser, 'axai': AxaiParser, 'fiuu': FiuuParser}
+    parsers = {'m1': M1Parser, 'axai': AxaiParser}
     
     for account in pg_accounts:
         label = account['label']

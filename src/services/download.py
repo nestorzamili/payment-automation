@@ -21,20 +21,36 @@ def get_date_range(platform: str) -> tuple[str, str] | None:
 
 def run_download_jobs(jobs: List[Tuple[int, dict]], from_date: str, to_date: str):
     async def run():
-        async with BrowserManager() as browser_manager:
-            for job_id, account in jobs:
-                job_manager.update_job(job_id, 'running')   
-                try:
-                    scraper_class = get_scraper_class(account['platform'])
-                    scraper = scraper_class(account)
-                    files = await scraper.download_data(browser_manager, from_date, to_date)
-                    filenames = [f.name for f in files]
-                    filename = ','.join(filenames) if filenames else None
-                    job_manager.update_job(job_id, 'completed', filename=filename, transactions_count=len(files))
-                except Exception as e:
-                    error_msg = str(e).split('Call log:')[0].strip()
-                    logger.error(f"Download failed: {account['label']} - {error_msg}")
-                    job_manager.update_job(job_id, 'failed', desc=error_msg)
+        playwright_jobs = [(job_id, acc) for job_id, acc in jobs if acc['platform'] != 'fiuu']
+        fiuu_jobs = [(job_id, acc) for job_id, acc in jobs if acc['platform'] == 'fiuu']
+        
+        for job_id, account in fiuu_jobs:
+            job_manager.update_job(job_id, 'running')
+            try:
+                from src.services.fiuu import FiuuAPIClient
+                client = FiuuAPIClient(account)
+                count = client.fetch_and_store(from_date, to_date)
+                job_manager.update_job(job_id, 'completed', transactions_count=count)
+            except Exception as e:
+                error_msg = str(e).split('Call log:')[0].strip()
+                logger.error(f"Download failed: {account['label']} - {error_msg}")
+                job_manager.update_job(job_id, 'failed', desc=error_msg)
+        
+        if playwright_jobs:
+            async with BrowserManager() as browser_manager:
+                for job_id, account in playwright_jobs:
+                    job_manager.update_job(job_id, 'running')
+                    try:
+                        scraper_class = get_scraper_class(account['platform'])
+                        scraper = scraper_class(account)
+                        files = await scraper.download_data(browser_manager, from_date, to_date)
+                        filenames = [f.name for f in files]
+                        filename = ','.join(filenames) if filenames else None
+                        job_manager.update_job(job_id, 'completed', filename=filename, transactions_count=len(files))
+                    except Exception as e:
+                        error_msg = str(e).split('Call log:')[0].strip()
+                        logger.error(f"Download failed: {account['label']} - {error_msg}")
+                        job_manager.update_job(job_id, 'failed', desc=error_msg)
     
     asyncio.run(run())
 

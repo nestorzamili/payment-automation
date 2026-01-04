@@ -193,7 +193,6 @@ class BaseScraper(ABC):
 
 def get_scraper_class(platform: str):
     from src.scrapers.axai import AxaiScraper
-    from src.scrapers.fiuu import FiuuScraper
     from src.scrapers.kira import KiraScraper
     from src.scrapers.m1 import M1Scraper
     
@@ -201,7 +200,6 @@ def get_scraper_class(platform: str):
         'kira': KiraScraper,
         'axai': AxaiScraper,
         'm1': M1Scraper,
-        'fiuu': FiuuScraper,
     }
     
     scraper_class = scraper_map.get(platform)
