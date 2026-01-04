@@ -75,15 +75,28 @@ class KiraScraper(BaseScraper):
         await page.wait_for_load_state('networkidle')
         await asyncio.sleep(2)
         
-        first_row = page.locator('#reportListTable tbody tr').first
-        status = await first_row.locator('td:nth-child(10)').text_content()
-        status = status.strip() if status else ""
-        
-        if status != "Completed":
-            logger.info(f"Export status: {status} - file not ready yet")
+        max_attempts = 60
+        for attempt in range(max_attempts):
+            first_row = page.locator('#reportListTable tbody tr').first
+            status_cell = first_row.locator('td:nth-child(10)')
+            status = await status_cell.text_content()
+            status = status.strip() if status else ""
+            
+            if status == "Completed":
+                logger.info(f"Export completed (attempt {attempt + 1})")
+                break
+            
+            logger.info(f"Export status: {status} - waiting... (attempt {attempt + 1}/{max_attempts})")
+            await asyncio.sleep(5)
+            
+            await page.locator('button[ng-click="refreshDisplay()"]').click()
+            await page.wait_for_load_state('networkidle')
+            await asyncio.sleep(1)
+        else:
+            logger.warning(f"Export timed out after {max_attempts} attempts")
             return []
         
-        logger.info("Export completed, clicking Download button")
+        logger.info("Clicking Download button")
         download_btn = first_row.locator('button[ng-click^="downloadReport"]')
         
         async with page.expect_download() as download_info:

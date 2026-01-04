@@ -111,6 +111,19 @@ class JobManager:
         finally:
             session.close()
 
+    def list_jobs(self, run_id: str = None, limit: int = 50) -> List[dict]:
+        session = get_session()
+        try:
+            query = session.query(Job).order_by(Job.created_at.desc())
+            
+            if run_id:
+                query = query.filter(Job.run_id == run_id)
+            
+            jobs = query.limit(limit).all()
+            return [j.to_dict() for j in jobs]
+        finally:
+            session.close()
+
     def get_running_job_by_type(self, job_type: str) -> dict | None:
         session = get_session()
         try:
