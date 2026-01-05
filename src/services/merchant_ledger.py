@@ -211,7 +211,7 @@ class MerchantLedgerSheetService:
         
         manual_inputs = []
         for row in data:
-            if not row or not row[0]:
+            if len(row) < 1 or not row[0]:
                 continue
             
             record_id = row[0]
@@ -220,11 +220,7 @@ class MerchantLedgerSheetService:
             withdrawal_amount = row[15] if len(row) > 15 else ''
             withdrawal_rate = row[16] if len(row) > 16 else ''
             topup_payout_pool = row[18] if len(row) > 18 else ''
-            remarks = row[23] if len(row) > 23 else ''
-            
-            if not any([settlement_fund, settlement_charges, withdrawal_amount, \
-                       withdrawal_rate, topup_payout_pool, remarks]):
-                continue
+            remarks = row[23].strip() if len(row) > 23 and row[23] else ''
             
             manual_inputs.append({
                 'id': int(record_id),
@@ -253,20 +249,18 @@ class MerchantLedgerSheetService:
             if not record:
                 continue
             
-            if input_data['settlement_fund'] is not None:
-                record.settlement_fund = input_data['settlement_fund']
-            if input_data['settlement_charges'] is not None:
-                record.settlement_charges = input_data['settlement_charges']
-            if input_data['withdrawal_amount'] is not None:
-                record.withdrawal_amount = input_data['withdrawal_amount']
-            if input_data['withdrawal_rate'] is not None:
-                record.withdrawal_rate = input_data['withdrawal_rate']
-                if record.withdrawal_amount:
-                    record.withdrawal_charges = r(record.withdrawal_amount * record.withdrawal_rate / 100)
-            if input_data['topup_payout_pool'] is not None:
-                record.topup_payout_pool = input_data['topup_payout_pool']
-            if input_data['remarks'] is not None:
-                record.remarks = input_data['remarks']
+            record.settlement_fund = input_data['settlement_fund']
+            record.settlement_charges = input_data['settlement_charges']
+            record.withdrawal_amount = input_data['withdrawal_amount']
+            record.withdrawal_rate = input_data['withdrawal_rate']
+            
+            if record.withdrawal_amount and record.withdrawal_rate:
+                record.withdrawal_charges = r(record.withdrawal_amount * record.withdrawal_rate / 100)
+            else:
+                record.withdrawal_charges = None
+            
+            record.topup_payout_pool = input_data['topup_payout_pool']
+            record.remarks = input_data['remarks']
             
             count += 1
         
@@ -347,17 +341,17 @@ class MerchantLedgerSheetService:
             rows.append([
                 rec.get('id', ''),
                 rec.get('transaction_date', ''),
-                rec.get('fpx_amount') or '',
-                rec.get('fpx_fee') or '',
-                rec.get('fpx_gross') or '',
-                rec.get('ewallet_amount') or '',
-                rec.get('ewallet_fee') or '',
-                rec.get('ewallet_gross') or '',
-                rec.get('total_gross') or '',
-                rec.get('total_fee') or '',
-                rec.get('available_fpx') or '',
-                rec.get('available_ewallet') or '',
-                rec.get('available_total') or '',
+                rec.get('fpx_amount') if rec.get('fpx_amount') is not None else 0,
+                rec.get('fpx_fee') if rec.get('fpx_fee') is not None else 0,
+                rec.get('fpx_gross') if rec.get('fpx_gross') is not None else 0,
+                rec.get('ewallet_amount') if rec.get('ewallet_amount') is not None else 0,
+                rec.get('ewallet_fee') if rec.get('ewallet_fee') is not None else 0,
+                rec.get('ewallet_gross') if rec.get('ewallet_gross') is not None else 0,
+                rec.get('total_gross') if rec.get('total_gross') is not None else 0,
+                rec.get('total_fee') if rec.get('total_fee') is not None else 0,
+                rec.get('available_fpx') if rec.get('available_fpx') is not None else 0,
+                rec.get('available_ewallet') if rec.get('available_ewallet') is not None else 0,
+                rec.get('available_total') if rec.get('available_total') is not None else 0,
                 rec.get('settlement_fund') or '',
                 rec.get('settlement_charges') or '',
                 rec.get('withdrawal_amount') or '',

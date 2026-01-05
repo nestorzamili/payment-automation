@@ -215,39 +215,38 @@ class SummarySheetService:
             m_data = merchant_data.get(merchant, {})
             rows.append([
                 merchant,
-                m_data.get('1', 0) or '',
-                m_data.get('2', 0) or '',
-                m_data.get('3', 0) or '',
-                m_data.get('4', 0) or '',
-                m_data.get('5', 0) or '',
-                m_data.get('6', 0) or '',
-                m_data.get('7', 0) or '',
-                m_data.get('8', 0) or '',
-                m_data.get('9', 0) or '',
-                m_data.get('10', 0) or '',
-                m_data.get('11', 0) or '',
-                m_data.get('12', 0) or '',
-                m_data.get('total', 0) or '',
+                m_data.get('1', 0),
+                m_data.get('2', 0),
+                m_data.get('3', 0),
+                m_data.get('4', 0),
+                m_data.get('5', 0),
+                m_data.get('6', 0),
+                m_data.get('7', 0),
+                m_data.get('8', 0),
+                m_data.get('9', 0),
+                m_data.get('10', 0),
+                m_data.get('11', 0),
+                m_data.get('12', 0),
+                m_data.get('total', 0),
             ])
         
         grand_total = monthly_totals.get('grand_total', 0)
-        if grand_total != 0:
-            rows.append([
-                'Total Deposit',
-                monthly_totals.get('1', 0) or '',
-                monthly_totals.get('2', 0) or '',
-                monthly_totals.get('3', 0) or '',
-                monthly_totals.get('4', 0) or '',
-                monthly_totals.get('5', 0) or '',
-                monthly_totals.get('6', 0) or '',
-                monthly_totals.get('7', 0) or '',
-                monthly_totals.get('8', 0) or '',
-                monthly_totals.get('9', 0) or '',
-                monthly_totals.get('10', 0) or '',
-                monthly_totals.get('11', 0) or '',
-                monthly_totals.get('12', 0) or '',
-                grand_total,
-            ])
+        rows.append([
+            'Total Deposit',
+            monthly_totals.get('1', 0),
+            monthly_totals.get('2', 0),
+            monthly_totals.get('3', 0),
+            monthly_totals.get('4', 0),
+            monthly_totals.get('5', 0),
+            monthly_totals.get('6', 0),
+            monthly_totals.get('7', 0),
+            monthly_totals.get('8', 0),
+            monthly_totals.get('9', 0),
+            monthly_totals.get('10', 0),
+            monthly_totals.get('11', 0),
+            monthly_totals.get('12', 0),
+            grand_total,
+        ])
         
         worksheet = client.spreadsheet.worksheet(SUMMARY_SHEET)
         worksheet.batch_clear([DATA_RANGE])

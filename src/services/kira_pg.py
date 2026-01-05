@@ -248,17 +248,14 @@ class KiraPGSheetService:
         
         manual_inputs = []
         for row in data:
-            if len(row) < 18 or not row[0]:
+            if len(row) < 1 or not row[0]:
                 continue
             
             record_id = row[0]
-            settlement_rule = row[9] if len(row) > 9 else ''
-            fee_type = row[11] if len(row) > 11 else ''
+            settlement_rule = row[9].strip() if len(row) > 9 and row[9] else ''
+            fee_type = row[11].strip() if len(row) > 11 and row[11] else ''
             fee_rate = row[12] if len(row) > 12 else ''
-            remarks = row[17] if len(row) > 17 else ''
-            
-            if not any([settlement_rule, fee_type, fee_rate, remarks]):
-                continue
+            remarks = row[17].strip() if len(row) > 17 and row[17] else ''
             
             manual_inputs.append({
                 'id': int(record_id),
@@ -294,15 +291,18 @@ class KiraPGSheetService:
                     record.transaction_date, record.settlement_rule,
                     public_holidays, add_on_holidays
                 )
+            else:
+                record.settlement_rule = None
+                record.settlement_date = None
             
             if input_data['fee_type'] is not None:
                 record.fee_type = input_data['fee_type'].lower()
+            else:
+                record.fee_type = None
             
-            if input_data['fee_rate'] is not None:
-                record.fee_rate = input_data['fee_rate']
+            record.fee_rate = input_data['fee_rate']
             
-            if input_data['remarks'] is not None:
-                record.remarks = input_data['remarks']
+            record.remarks = input_data['remarks']
             
             record.fees = _calculate_fee(record.fee_type, record.fee_rate, record.pg_amount)
             record.settlement_amount = r(record.pg_amount - record.fees) if record.fees is not None else None

@@ -177,7 +177,7 @@ class AgentLedgerSheetService:
         
         manual_inputs = []
         for row in data:
-            if not row or not row[0]:
+            if len(row) < 1 or not row[0]:
                 continue
             
             record_id = row[0]
@@ -185,9 +185,6 @@ class AgentLedgerSheetService:
             commission_rate_ewallet = row[4] if len(row) > 4 else ''
             volume = row[10] if len(row) > 10 else ''
             commission_rate = row[11] if len(row) > 11 else ''
-            
-            if not any([commission_rate_fpx, commission_rate_ewallet, volume, commission_rate]):
-                continue
             
             manual_inputs.append({
                 'id': int(record_id),
@@ -214,16 +211,15 @@ class AgentLedgerSheetService:
             if not record:
                 continue
             
-            if input_data['commission_rate_fpx'] is not None:
-                record.commission_rate_fpx = input_data['commission_rate_fpx']
-            if input_data['commission_rate_ewallet'] is not None:
-                record.commission_rate_ewallet = input_data['commission_rate_ewallet']
-            if input_data['volume'] is not None:
-                record.volume = input_data['volume']
-            if input_data['commission_rate'] is not None:
-                record.commission_rate = input_data['commission_rate']
-                if record.volume:
-                    record.commission_amount = r(record.volume * record.commission_rate)
+            record.commission_rate_fpx = input_data['commission_rate_fpx']
+            record.commission_rate_ewallet = input_data['commission_rate_ewallet']
+            record.volume = input_data['volume']
+            record.commission_rate = input_data['commission_rate']
+            
+            if record.volume and record.commission_rate:
+                record.commission_amount = r(record.volume * record.commission_rate)
+            else:
+                record.commission_amount = None
             
             count += 1
         
@@ -308,13 +304,13 @@ class AgentLedgerSheetService:
                 rec.get('id', ''),
                 rec.get('transaction_date', ''),
                 rec.get('commission_rate_fpx') or '',
-                rec.get('fpx_commission') or '',
+                rec.get('fpx_commission') if rec.get('fpx_commission') is not None else 0,
                 rec.get('commission_rate_ewallet') or '',
-                rec.get('ewallet_commission') or '',
-                rec.get('gross_amount') or '',
-                rec.get('available_fpx') or '',
-                rec.get('available_ewallet') or '',
-                rec.get('available_total') or '',
+                rec.get('ewallet_commission') if rec.get('ewallet_commission') is not None else 0,
+                rec.get('gross_amount') if rec.get('gross_amount') is not None else 0,
+                rec.get('available_fpx') if rec.get('available_fpx') is not None else 0,
+                rec.get('available_ewallet') if rec.get('available_ewallet') is not None else 0,
+                rec.get('available_total') if rec.get('available_total') is not None else 0,
                 rec.get('volume') or '',
                 rec.get('commission_rate') or '',
                 rec.get('commission_amount') or '',

@@ -288,23 +288,17 @@ class DepositSheetService:
         
         manual_inputs = []
         for row in data:
-            if len(row) < 24 or not row[0]:
+            if len(row) < 1 or not row[0]:
                 continue
             
             record_id = row[0]
-            fpx_fee_type = row[4] if len(row) > 4 else ''
+            fpx_fee_type = row[4].strip() if len(row) > 4 and row[4] else ''
             fpx_fee_rate = row[5] if len(row) > 5 else ''
-            fpx_settlement_rule = row[8] if len(row) > 8 else ''
-            ewallet_fee_type = row[12] if len(row) > 12 else ''
+            fpx_settlement_rule = row[8].strip() if len(row) > 8 and row[8] else ''
+            ewallet_fee_type = row[12].strip() if len(row) > 12 and row[12] else ''
             ewallet_fee_rate = row[13] if len(row) > 13 else ''
-            ewallet_settlement_rule = row[16] if len(row) > 16 else ''
-            remarks = row[23] if len(row) > 23 else ''
-            
-            has_data = any([fpx_fee_type, fpx_fee_rate, fpx_settlement_rule,
-                          ewallet_fee_type, ewallet_fee_rate, ewallet_settlement_rule, remarks])
-            
-            if not has_data:
-                continue
+            ewallet_settlement_rule = row[16].strip() if len(row) > 16 and row[16] else ''
+            remarks = row[23].strip() if len(row) > 23 and row[23] else ''
             
             manual_inputs.append({
                 'id': int(record_id),
@@ -337,28 +331,35 @@ class DepositSheetService:
             
             if input_data['fpx_fee_type'] is not None:
                 record.fpx_fee_type = input_data['fpx_fee_type'].lower()
-            if input_data['fpx_fee_rate'] is not None:
-                record.fpx_fee_rate = input_data['fpx_fee_rate']
+            else:
+                record.fpx_fee_type = None
+            record.fpx_fee_rate = input_data['fpx_fee_rate']
             if input_data['fpx_settlement_rule'] is not None:
                 record.fpx_settlement_rule = input_data['fpx_settlement_rule'].upper()
                 record.fpx_settlement_date = calculate_settlement_date(
                     record.transaction_date, record.fpx_settlement_rule,
                     public_holidays, add_on_holidays
                 )
+            else:
+                record.fpx_settlement_rule = None
+                record.fpx_settlement_date = None
             
             if input_data['ewallet_fee_type'] is not None:
                 record.ewallet_fee_type = input_data['ewallet_fee_type'].lower()
-            if input_data['ewallet_fee_rate'] is not None:
-                record.ewallet_fee_rate = input_data['ewallet_fee_rate']
+            else:
+                record.ewallet_fee_type = None
+            record.ewallet_fee_rate = input_data['ewallet_fee_rate']
             if input_data['ewallet_settlement_rule'] is not None:
                 record.ewallet_settlement_rule = input_data['ewallet_settlement_rule'].upper()
                 record.ewallet_settlement_date = calculate_settlement_date(
                     record.transaction_date, record.ewallet_settlement_rule,
                     public_holidays, add_on_holidays
                 )
+            else:
+                record.ewallet_settlement_rule = None
+                record.ewallet_settlement_date = None
             
-            if input_data['remarks'] is not None:
-                record.remarks = input_data['remarks']
+            record.remarks = input_data['remarks']
             
             record.fpx_fee_amount = calculate_fee(
                 record.fpx_fee_type, record.fpx_fee_rate,
@@ -388,24 +389,24 @@ class DepositSheetService:
             rows.append([
                 rec.id,
                 rec.transaction_date or '',
-                rec.fpx_amount or '',
-                rec.fpx_volume or '',
+                rec.fpx_amount if rec.fpx_amount is not None else 0,
+                rec.fpx_volume if rec.fpx_volume is not None else 0,
                 rec.fpx_fee_type or '',
                 rec.fpx_fee_rate or '',
-                rec.fpx_fee_amount or '',
-                rec.fpx_gross or '',
+                rec.fpx_fee_amount if rec.fpx_fee_amount is not None else 0,
+                rec.fpx_gross if rec.fpx_gross is not None else 0,
                 rec.fpx_settlement_rule or '',
                 rec.fpx_settlement_date or '',
-                rec.ewallet_amount or '',
-                rec.ewallet_volume or '',
+                rec.ewallet_amount if rec.ewallet_amount is not None else 0,
+                rec.ewallet_volume if rec.ewallet_volume is not None else 0,
                 rec.ewallet_fee_type or '',
                 rec.ewallet_fee_rate or '',
-                rec.ewallet_fee_amount or '',
-                rec.ewallet_gross or '',
+                rec.ewallet_fee_amount if rec.ewallet_fee_amount is not None else 0,
+                rec.ewallet_gross if rec.ewallet_gross is not None else 0,
                 rec.ewallet_settlement_rule or '',
                 rec.ewallet_settlement_date or '',
-                rec.total_amount or '',
-                rec.total_fees or '',
+                rec.total_amount if rec.total_amount is not None else 0,
+                rec.total_fees if rec.total_fees is not None else 0,
                 rec.available_fpx or '',
                 rec.available_ewallet or '',
                 rec.available_total or '',

@@ -36,7 +36,7 @@ function syncSheet_(sheetConfigKey, endpoint, label) {
     const result = JSON.parse(response.getContentText());
 
     if (result.status === 'success') {
-      SpreadsheetApp.getUi().alert(`Synced ${result.data.rows} rows successfully`);
+      // no alert on success
     } else {
       SpreadsheetApp.getUi().alert('Error: ' + (result.message || 'Unknown error'));
     }

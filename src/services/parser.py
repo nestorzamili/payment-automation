@@ -8,10 +8,10 @@ from src.core.models import KiraTransaction
 from src.parser.m1 import M1Parser
 from src.parser.axai import AxaiParser
 from src.parser.kira import KiraParser
-from src.services.kira_pg import init_kira_pg
-from src.services.deposit import init_deposit
-from src.services.merchant_ledger import init_merchant_ledger
-from src.services.agent_ledger import init_agent_ledger
+from src.services.kira_pg import init_kira_pg, KiraPGSheetService
+from src.services.deposit import init_deposit, DepositSheetService
+from src.services.merchant_ledger import init_merchant_ledger, MerchantLedgerSheetService
+from src.services.agent_ledger import init_agent_ledger, AgentLedgerSheetService
 from src.services.parameters import ParameterService
 
 logger = get_logger(__name__)
@@ -25,6 +25,8 @@ def run_parse_job(run_id: str) -> dict:
     
     ParameterService.sync_from_sheet()
     
+    _save_all_manual_inputs()
+    
     init_kira_pg()
     init_deposit()
     _init_ledgers()
@@ -34,6 +36,35 @@ def run_parse_job(run_id: str) -> dict:
     
     logger.info(f"Parse job completed (run_id: {run_id})")
     return result
+
+
+def _save_all_manual_inputs():
+    try:
+        try:
+            KiraPGSheetService.sync_sheet()
+            logger.info("Saved Kira PG manual inputs")
+        except Exception as e:
+            logger.warning(f"Could not save Kira PG manual inputs: {e}")
+        
+        try:
+            DepositSheetService.sync_sheet()
+            logger.info("Saved Deposit manual inputs")
+        except Exception as e:
+            logger.warning(f"Could not save Deposit manual inputs: {e}")
+        
+        try:
+            MerchantLedgerSheetService.sync_sheet()
+            logger.info("Saved Merchant Ledger manual inputs")
+        except Exception as e:
+            logger.warning(f"Could not save Merchant Ledger manual inputs: {e}")
+        
+        try:
+            AgentLedgerSheetService.sync_sheet()
+            logger.info("Saved Agent Ledger manual inputs")
+        except Exception as e:
+            logger.warning(f"Could not save Agent Ledger manual inputs: {e}")
+    except Exception as e:
+        logger.warning(f"Error saving manual inputs: {e}")
 
 
 def _parse_kira_files(run_id: str):
