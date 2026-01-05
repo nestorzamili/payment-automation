@@ -135,4 +135,38 @@ class SheetsClient:
             logger.info(f"Set dropdown in {sheet_name}!{cell} with {len(values)} values")
         except Exception as e:
             logger.error(f"Failed to set dropdown in {sheet_name}!{cell}: {e}")
+    
+    def set_dropdown_range(self, sheet_name: str, col: str, start_row: int, end_row: int, values: List[str]):
+        try:
+            worksheet = self.spreadsheet.worksheet(sheet_name)
+            
+            col_num = sum((ord(c.upper()) - ord('A') + 1) * (26 ** i) 
+                         for i, c in enumerate(reversed(col)))
+            
+            sheet_id = worksheet.id
+            
+            request = {
+                "setDataValidation": {
+                    "range": {
+                        "sheetId": sheet_id,
+                        "startRowIndex": start_row - 1,
+                        "endRowIndex": end_row,
+                        "startColumnIndex": col_num - 1,
+                        "endColumnIndex": col_num
+                    },
+                    "rule": {
+                        "condition": {
+                            "type": "ONE_OF_LIST",
+                            "values": [{"userEnteredValue": v} for v in values]
+                        },
+                        "showCustomUi": True,
+                        "strict": False
+                    }
+                }
+            }
+            
+            self.spreadsheet.batch_update({"requests": [request]})
+        except Exception as e:
+            logger.error(f"Failed to set dropdown range in {sheet_name}!{col}: {e}")
+
 

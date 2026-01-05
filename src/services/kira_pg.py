@@ -1,24 +1,32 @@
-from typing import List, Dict, Any, Optional, Set
+from typing import Dict, List, Any, Optional
+import re
 
-from sqlalchemy import and_, func
+from sqlalchemy import func
 
 from src.core.database import get_session
 from src.core.models import KiraPG, KiraTransaction, PGTransaction
 from src.core.logger import get_logger
+from src.services.client import SheetsClient
+from src.services.parameters import ParameterService
 from src.utils.helpers import normalize_channel, r, to_float
 from src.utils.holiday import load_malaysia_holidays, calculate_settlement_date
-from src.services.parameters import ParameterService
 
 logger = get_logger(__name__)
+
+KIRA_PG_SHEET = 'Kira PG'
+DATA_START_ROW = 4
+DATA_RANGE = 'A4:R300'
+
+MONTHS = {
+    'Jan': 1, 'Feb': 2, 'Mar': 3, 'Apr': 4, 'May': 5, 'Jun': 6,
+    'Jul': 7, 'Aug': 8, 'Sep': 9, 'Oct': 10, 'Nov': 11, 'Dec': 12
+}
 
 
 def init_kira_pg():
     session = get_session()
     
     try:
-        settlement_rules, add_on_holidays = ParameterService.load_parameters()
-        public_holidays = load_malaysia_holidays()
-        
         kira_agg = session.query(
             PGTransaction.account_label.label('pg_account_label'),
             func.substr(KiraTransaction.transaction_date, 1, 10).label('tx_date'),
@@ -84,20 +92,16 @@ def init_kira_pg():
             if kira_data['kira_amount'] == 0 and pg_data['pg_amount'] == 0:
                 continue
             
-            settlement_rule = _get_settlement_rule(settlement_rules, channel)
-            settlement_date = calculate_settlement_date(
-                tx_date, settlement_rule, public_holidays, add_on_holidays
-            )
-            
-            daily_variance = r(kira_data['kira_amount'] - pg_data['pg_amount'])
-            
             existing_record = existing_map.get(key)
+            settlement_rule = existing_record.settlement_rule if existing_record else None
+            settlement_date = existing_record.settlement_date if existing_record else None
             fee_type = existing_record.fee_type if existing_record else None
             fee_rate = existing_record.fee_rate if existing_record else None
             remarks = existing_record.remarks if existing_record else None
             
             fees = _calculate_fee(fee_type, fee_rate, pg_data['pg_amount'])
             settlement_amount = r(pg_data['pg_amount'] - fees) if fees is not None else None
+            daily_variance = r(kira_data['kira_amount'] - pg_data['pg_amount'])
             
             records.append({
                 'key': key,
@@ -147,10 +151,6 @@ def init_kira_pg():
         session.close()
 
 
-def _get_settlement_rule(rules: Dict[str, str], channel: str) -> str:
-    return rules.get(channel.lower(), 'T+1')
-
-
 def _calculate_fee(fee_type: Optional[str], fee_rate: Optional[float], amount: Optional[float]) -> Optional[float]:
     if fee_rate is None:
         return None
@@ -159,128 +159,198 @@ def _calculate_fee(fee_type: Optional[str], fee_rate: Optional[float], amount: O
     return r(amount * fee_rate / 100) if amount else None
 
 
-class KiraPGService:
+def _recalculate_cumulative_variance(session, year_month: str):
+    records = session.query(KiraPG).filter(
+        KiraPG.transaction_date.like(f"{year_month}%")
+    ).order_by(
+        KiraPG.transaction_date,
+        KiraPG.pg_account_label,
+        KiraPG.channel
+    ).all()
     
-    def __init__(self):
-        pass
+    cumulative = 0
+    for record in records:
+        cumulative += record.daily_variance or 0
+        record.cumulative_variance = r(cumulative)
+
+
+class KiraPGSheetService:
+    _client: Optional[SheetsClient] = None
     
-    def get_kira_pg_data(self, year: int = None, month: int = None) -> List[Dict[str, Any]]:
+    @classmethod
+    def get_client(cls) -> SheetsClient:
+        if cls._client is None:
+            cls._client = SheetsClient()
+        return cls._client
+    
+    @classmethod
+    def sync_sheet(cls) -> int:
+        client = cls.get_client()
+        
+        period_value = client.read_data(KIRA_PG_SHEET, 'B1')
+        if not period_value or not period_value[0]:
+            raise ValueError("Period not selected")
+        
+        year, month = cls._parse_period(period_value[0][0])
+        if not year or not month:
+            raise ValueError("Invalid period format")
+        
         session = get_session()
         
         try:
-            query = session.query(KiraPG)
+            add_on_holidays = ParameterService.load_parameters()
+            public_holidays = load_malaysia_holidays()
             
-            if year and month:
-                date_prefix = f"{year}-{month:02d}"
-                query = query.filter(KiraPG.transaction_date.like(f"{date_prefix}%"))
+            manual_inputs = cls._read_manual_inputs()
+            cls._apply_manual_inputs(session, manual_inputs, public_holidays, add_on_holidays)
             
-            records = query.order_by(
+            session.commit()
+            
+            date_prefix = f"{year}-{month:02d}"
+            records = session.query(KiraPG).filter(
+                KiraPG.transaction_date.like(f"{date_prefix}%")
+            ).order_by(
                 KiraPG.transaction_date,
                 KiraPG.pg_account_label,
                 KiraPG.channel
             ).all()
             
-            return [self._to_response_dict(rec) for rec in records]
+            cls._write_to_sheet(records)
             
-        finally:
-            session.close()
-    
-    def _to_response_dict(self, record: KiraPG) -> Dict[str, Any]:
-        return {
-            'pg_merchant': record.pg_account_label,
-            'channel': record.channel,
-            'kira_amount': record.kira_amount,
-            'mdr': record.mdr,
-            'kira_settlement_amount': record.kira_settlement_amount,
-            'pg_date': record.transaction_date,
-            'amount_pg': record.pg_amount,
-            'transaction_count': record.volume,
-            'settlement_rule': record.settlement_rule,
-            'settlement_date': record.settlement_date,
-            'fee_type': record.fee_type,
-            'fee_rate': record.fee_rate,
-            'fees': record.fees,
-            'settlement_amount': record.settlement_amount,
-            'daily_variance': record.daily_variance,
-            'cumulative_variance': record.cumulative_variance,
-            'remarks': record.remarks,
-        }
-    
-    def save_manual_data(self, manual_data: List[Dict[str, Any]]) -> int:
-        session = get_session()
-        count = 0
-        affected_dates = set()
-        
-        try:
-            for row in manual_data:
-                pg_merchant = row.get('pg_merchant')
-                date = row.get('pg_date')
-                channel = normalize_channel(row.get('channel'))
-                
-                if not pg_merchant or not date:
-                    continue
-                
-                existing = session.query(KiraPG).filter(
-                    and_(
-                        KiraPG.pg_account_label == pg_merchant,
-                        KiraPG.transaction_date == date,
-                        KiraPG.channel == channel
-                    )
-                ).first()
-                
-                if not existing:
-                    continue
-                
-                fee_type_raw = row.get('fee_type')
-                fee_rate_raw = row.get('fee_rate')
-                remarks_raw = row.get('remarks')
-                
-                if fee_type_raw == 'CLEAR':
-                    existing.fee_type = None
-                elif fee_type_raw is not None:
-                    existing.fee_type = str(fee_type_raw).lower()
-                
-                if fee_rate_raw == 'CLEAR':
-                    existing.fee_rate = None
-                elif fee_rate_raw is not None:
-                    existing.fee_rate = to_float(fee_rate_raw)
-                
-                if remarks_raw == 'CLEAR':
-                    existing.remarks = None
-                elif remarks_raw is not None and str(remarks_raw).strip():
-                    existing.remarks = str(remarks_raw).strip()
-                
-                fees = _calculate_fee(existing.fee_type, existing.fee_rate, existing.pg_amount)
-                existing.fees = fees
-                existing.settlement_amount = r(existing.pg_amount - fees) if fees is not None else None
-                
-                affected_dates.add(date[:7])
-                count += 1
-            
-            for ym in affected_dates:
-                self._recalculate_cumulative_variance(session, ym)
-            
-            session.commit()
-            logger.info(f"Saved {count} Kira PG manual inputs")
-            return count
+            return len(records)
             
         except Exception as e:
             session.rollback()
-            logger.error(f"Failed to save manual data: {e}")
+            logger.error(f"Failed to sync Kira PG sheet: {e}")
             raise
         finally:
             session.close()
     
-    def _recalculate_cumulative_variance(self, session, year_month: str):
-        records = session.query(KiraPG).filter(
-            KiraPG.transaction_date.like(f"{year_month}%")
-        ).order_by(
-            KiraPG.transaction_date,
-            KiraPG.pg_account_label,
-            KiraPG.channel
-        ).all()
+    @classmethod
+    def _parse_period(cls, period_str: str) -> tuple:
+        if not period_str:
+            return None, None
         
-        cumulative = 0
-        for record in records:
-            cumulative += record.daily_variance or 0
-            record.cumulative_variance = r(cumulative)
+        match = re.match(r'(\w+)\s+(\d{4})', str(period_str))
+        if not match:
+            return None, None
+        
+        month_name = match.group(1)
+        year = int(match.group(2))
+        month = MONTHS.get(month_name)
+        
+        return year, month
+    
+    @classmethod
+    def _read_manual_inputs(cls) -> List[Dict[str, Any]]:
+        client = cls.get_client()
+        data = client.read_data(KIRA_PG_SHEET, DATA_RANGE)
+        
+        manual_inputs = []
+        for row in data:
+            if len(row) < 18 or not row[0]:
+                continue
+            
+            record_id = row[0]
+            settlement_rule = row[9] if len(row) > 9 else ''
+            fee_type = row[11] if len(row) > 11 else ''
+            fee_rate = row[12] if len(row) > 12 else ''
+            remarks = row[17] if len(row) > 17 else ''
+            
+            if not any([settlement_rule, fee_type, fee_rate, remarks]):
+                continue
+            
+            manual_inputs.append({
+                'id': int(record_id),
+                'settlement_rule': settlement_rule if settlement_rule else None,
+                'fee_type': fee_type if fee_type else None,
+                'fee_rate': to_float(fee_rate) if fee_rate else None,
+                'remarks': remarks if remarks else None,
+            })
+        
+        return manual_inputs
+    
+    @classmethod
+    def _apply_manual_inputs(cls, session, manual_inputs: List[Dict],
+                             public_holidays, add_on_holidays) -> int:
+        if not manual_inputs:
+            return 0
+        
+        ids = [m['id'] for m in manual_inputs]
+        records = session.query(KiraPG).filter(KiraPG.id.in_(ids)).all()
+        records_by_id = {rec.id: rec for rec in records}
+        
+        affected_dates = set()
+        count = 0
+        
+        for input_data in manual_inputs:
+            record = records_by_id.get(input_data['id'])
+            if not record:
+                continue
+            
+            if input_data['settlement_rule'] is not None:
+                record.settlement_rule = input_data['settlement_rule'].upper()
+                record.settlement_date = calculate_settlement_date(
+                    record.transaction_date, record.settlement_rule,
+                    public_holidays, add_on_holidays
+                )
+            
+            if input_data['fee_type'] is not None:
+                record.fee_type = input_data['fee_type'].lower()
+            
+            if input_data['fee_rate'] is not None:
+                record.fee_rate = input_data['fee_rate']
+            
+            if input_data['remarks'] is not None:
+                record.remarks = input_data['remarks']
+            
+            record.fees = _calculate_fee(record.fee_type, record.fee_rate, record.pg_amount)
+            record.settlement_amount = r(record.pg_amount - record.fees) if record.fees is not None else None
+            
+            affected_dates.add(record.transaction_date[:7])
+            count += 1
+        
+        for ym in affected_dates:
+            _recalculate_cumulative_variance(session, ym)
+        
+        logger.info(f"Applied {count} manual inputs to Kira PG")
+        return count
+    
+    @classmethod
+    def _write_to_sheet(cls, records: List[KiraPG]):
+        client = cls.get_client()
+        
+        rows = []
+        for rec in records:
+            rows.append([
+                rec.id,
+                rec.pg_account_label or '',
+                rec.channel or '',
+                rec.kira_amount or '',
+                rec.mdr or '',
+                rec.kira_settlement_amount or '',
+                rec.transaction_date or '',
+                rec.pg_amount or '',
+                rec.volume or '',
+                rec.settlement_rule or '',
+                rec.settlement_date or '',
+                rec.fee_type or '',
+                rec.fee_rate or '',
+                rec.fees or '',
+                rec.settlement_amount or '',
+                rec.daily_variance or '',
+                rec.cumulative_variance or '',
+                rec.remarks or '',
+            ])
+        
+        worksheet = client.spreadsheet.worksheet(KIRA_PG_SHEET)
+        worksheet.batch_clear([DATA_RANGE])
+        
+        if rows:
+            client.write_data(KIRA_PG_SHEET, rows, f'A{DATA_START_ROW}')
+            
+            end_row = DATA_START_ROW + len(rows)
+            client.set_dropdown_range(KIRA_PG_SHEET, 'J', DATA_START_ROW, end_row, ['T+1', 'T+2', 'T+3'])
+            client.set_dropdown_range(KIRA_PG_SHEET, 'L', DATA_START_ROW, end_row, ['percentage', 'flat'])
+        
+        logger.info(f"Wrote {len(rows)} rows to Kira PG sheet")

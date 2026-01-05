@@ -174,6 +174,7 @@ class Deposit(Base):
     fpx_fee_rate = Column(Float)
     fpx_fee_amount = Column(Float)
     fpx_gross = Column(Float)
+    fpx_settlement_rule = Column(String(10))
     fpx_settlement_date = Column(String(10))
     
     ewallet_amount = Column(Float)
@@ -182,6 +183,7 @@ class Deposit(Base):
     ewallet_fee_rate = Column(Float)
     ewallet_fee_amount = Column(Float)
     ewallet_gross = Column(Float)
+    ewallet_settlement_rule = Column(String(10))
     ewallet_settlement_date = Column(String(10))
     
     total_amount = Column(Float)
@@ -231,6 +233,7 @@ class Deposit(Base):
             'fpx_fee_rate': self._r(self.fpx_fee_rate),
             'fpx_fee_amount': self._r(self.fpx_fee_amount),
             'fpx_gross': self._r(self.fpx_gross),
+            'fpx_settlement_rule': self.fpx_settlement_rule,
             'fpx_settlement_date': self.fpx_settlement_date,
             'ewallet_amount': self._r(self.ewallet_amount),
             'ewallet_volume': self.ewallet_volume,
@@ -238,6 +241,7 @@ class Deposit(Base):
             'ewallet_fee_rate': self._r(self.ewallet_fee_rate),
             'ewallet_fee_amount': self._r(self.ewallet_fee_amount),
             'ewallet_gross': self._r(self.ewallet_gross),
+            'ewallet_settlement_rule': self.ewallet_settlement_rule,
             'ewallet_settlement_date': self.ewallet_settlement_date,
             'total_amount': self._r(self.total_amount),
             'total_fees': self._r(self.total_fees),

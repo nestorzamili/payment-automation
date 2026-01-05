@@ -1,8 +1,8 @@
-from flask import Blueprint, request
+from flask import Blueprint
 
-from src.services.merchant_ledger import MerchantLedgerService
+from src.services.merchant_ledger import MerchantLedgerSheetService, list_merchants, list_periods
 from src.core.logger import get_logger
-from src.utils.response import jsend_success, jsend_fail, jsend_error
+from src.utils.response import jsend_success, jsend_error
 
 logger = get_logger(__name__)
 
@@ -10,41 +10,26 @@ bp = Blueprint('merchant_ledger', __name__)
 
 
 @bp.route('/merchant-ledger', methods=['POST'])
-def update_merchant_ledger():
+def sync_merchant_ledger():
     try:
-        data = request.get_json() or {}
-        
-        merchant = data.get('merchant')
-        year = data.get('year')
-        month = data.get('month')
-        manual_data = data.get('manual_data', [])
-        
-        if not merchant or not year or not month:
-            return jsend_fail({'message': 'merchant, year, and month are required'}, 400)
-        
-        service = MerchantLedgerService()
-        
-        if manual_data:
-            logger.info(f"Saving {len(manual_data)} merchant ledger manual inputs")
-            service.save_manual_data(manual_data)
-        
-        ledger_data = service.get_ledger_data(merchant, year, month)
+        rows = MerchantLedgerSheetService.sync_sheet()
         
         return jsend_success({
-            'message': 'Merchant ledger updated successfully',
-            'rows': len(ledger_data),
-            'data': ledger_data
+            'message': 'Merchant Ledger synced successfully',
+            'rows': rows
         })
             
+    except ValueError as e:
+        return jsend_error(str(e), 400)
     except Exception as e:
-        logger.error(f"Error updating merchant ledger: {e}")
+        logger.error(f"Error syncing merchant ledger: {e}")
         return jsend_error(str(e))
 
 
 @bp.route('/merchants', methods=['GET'])
-def list_merchants():
+def get_merchants():
     try:
-        merchants = MerchantLedgerService.list_merchants()
+        merchants = list_merchants()
         return jsend_success({'merchants': merchants})
     except Exception as e:
         logger.error(f"Error listing merchants: {e}")
@@ -52,9 +37,9 @@ def list_merchants():
 
 
 @bp.route('/periods', methods=['GET'])
-def list_periods():
+def get_periods():
     try:
-        periods = MerchantLedgerService.list_periods()
+        periods = list_periods()
         return jsend_success({'periods': periods})
     except Exception as e:
         logger.error(f"Error listing periods: {e}")

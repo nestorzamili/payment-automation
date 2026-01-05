@@ -1,8 +1,8 @@
-from flask import Blueprint, request
+from flask import Blueprint
 
-from src.services.deposit import DepositService
+from src.services.deposit import DepositSheetService
 from src.core.logger import get_logger
-from src.utils.response import jsend_success, jsend_fail, jsend_error
+from src.utils.response import jsend_success, jsend_error
 
 logger = get_logger(__name__)
 
@@ -10,32 +10,17 @@ bp = Blueprint('deposit', __name__)
 
 
 @bp.route('/deposit', methods=['POST'])
-def update_deposit():
+def sync_deposit():
     try:
-        data = request.get_json() or {}
-        
-        merchant = data.get('merchant')
-        year = data.get('year')
-        month = data.get('month')
-        fee_data = data.get('fee_data', [])
-        
-        if not merchant or not year or not month:
-            return jsend_fail({'message': 'merchant, year, and month are required'}, 400)
-        
-        service = DepositService()
-        
-        if fee_data:
-            logger.info(f"Saving {len(fee_data)} deposit fee inputs")
-            service.save_fee_inputs(fee_data)
-        
-        deposit_data = service.get_deposit_data(merchant, year, month)
+        rows = DepositSheetService.sync_sheet()
         
         return jsend_success({
-            'message': 'Deposit updated successfully',
-            'rows': len(deposit_data),
-            'data': deposit_data
+            'message': 'Deposit synced successfully',
+            'rows': rows
         })
             
+    except ValueError as e:
+        return jsend_error(str(e), 400)
     except Exception as e:
-        logger.error(f"Error updating deposit: {e}")
+        logger.error(f"Error syncing deposit: {e}")
         return jsend_error(str(e))

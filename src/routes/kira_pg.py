@@ -1,6 +1,6 @@
-from flask import Blueprint, request
+from flask import Blueprint
 
-from src.services.kira_pg import KiraPGService
+from src.services.kira_pg import KiraPGSheetService
 from src.core.logger import get_logger
 from src.utils.response import jsend_success, jsend_error
 
@@ -10,27 +10,17 @@ bp = Blueprint('kira_pg', __name__)
 
 
 @bp.route('/kira-pg', methods=['POST'])
-def update_kira_pg():
+def sync_kira_pg():
     try:
-        data = request.get_json() or {}
-        manual_data = data.get('manual_data', [])
-        year = data.get('year')
-        month = data.get('month')
-        
-        service = KiraPGService()
-        
-        if manual_data:
-            logger.info(f"Saving {len(manual_data)} Kira PG manual inputs")
-            service.save_manual_data(manual_data)
-        
-        kira_pg_data = service.get_kira_pg_data(year=year, month=month)
+        rows = KiraPGSheetService.sync_sheet()
         
         return jsend_success({
-            'message': 'Kira PG updated successfully',
-            'rows': len(kira_pg_data),
-            'data': kira_pg_data
+            'message': 'Kira PG synced successfully',
+            'rows': rows
         })
             
+    except ValueError as e:
+        return jsend_error(str(e), 400)
     except Exception as e:
-        logger.error(f"Error updating Kira PG: {e}")
+        logger.error(f"Error syncing Kira PG: {e}")
         return jsend_error(str(e))

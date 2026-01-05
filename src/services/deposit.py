@@ -1,23 +1,34 @@
-from typing import List, Dict, Any, Set
+from typing import Dict, List, Any, Optional, Set
 from calendar import monthrange
+import re
 
-from sqlalchemy import and_, func
+from sqlalchemy import func
 
 from src.core.database import get_session
 from src.core.models import Deposit, KiraTransaction
 from src.core.logger import get_logger
+from src.services.client import SheetsClient
+from src.services.parameters import ParameterService
 from src.utils.helpers import normalize_channel, r, to_float, calculate_fee
 from src.utils.holiday import load_malaysia_holidays, calculate_settlement_date
-from src.services.parameters import ParameterService
 
 logger = get_logger(__name__)
+
+DEPOSIT_SHEET = 'Deposit'
+DATA_START_ROW = 7
+DATA_RANGE = 'A7:X50'
+
+MONTHS = {
+    'Jan': 1, 'Feb': 2, 'Mar': 3, 'Apr': 4, 'May': 5, 'Jun': 6,
+    'Jul': 7, 'Aug': 8, 'Sep': 9, 'Oct': 10, 'Nov': 11, 'Dec': 12
+}
 
 
 def init_deposit():
     session = get_session()
     
     try:
-        settlement_rules, add_on_holidays = ParameterService.load_parameters()
+        add_on_holidays = ParameterService.load_parameters()
         public_holidays = load_malaysia_holidays()
         
         merchants = session.query(KiraTransaction.merchant).distinct().all()
@@ -69,8 +80,8 @@ def init_deposit():
                 for day in range(1, last_day + 1):
                     date_str = f"{year}-{month:02d}-{day:02d}"
                     
-                    fpx_data = tx_map.get((date_str, 'FPX'), {'amount': 0, 'volume': 0, 'settlement_amount': 0})
-                    ewallet_data = tx_map.get((date_str, 'EWALLET'), {'amount': 0, 'volume': 0, 'settlement_amount': 0})
+                    fpx_data = tx_map.get((date_str, 'FPX'), {'amount': 0, 'volume': 0})
+                    ewallet_data = tx_map.get((date_str, 'EWALLET'), {'amount': 0, 'volume': 0})
                     
                     existing_record = existing_map.get((merchant, date_str))
                     
@@ -80,21 +91,22 @@ def init_deposit():
                     ewallet_fee_rate = existing_record.ewallet_fee_rate if existing_record else None
                     remarks = existing_record.remarks if existing_record else None
                     
-                    fpx_rule = _get_settlement_rule(settlement_rules, 'FPX')
-                    ewallet_rule = _get_settlement_rule(settlement_rules, 'EWALLET')
+                    fpx_rule = existing_record.fpx_settlement_rule if existing_record else None
+                    ewallet_rule = existing_record.ewallet_settlement_rule if existing_record else None
                     
                     fpx_settlement_date = calculate_settlement_date(
                         date_str, fpx_rule, public_holidays, add_on_holidays
-                    )
+                    ) if fpx_rule else None
+                    
                     ewallet_settlement_date = calculate_settlement_date(
                         date_str, ewallet_rule, public_holidays, add_on_holidays
-                    )
+                    ) if ewallet_rule else None
                     
                     fpx_fee_amount = calculate_fee(
-                        fpx_fee_type, fpx_fee_rate, fpx_data['amount'], fpx_data['volume']
+                        fpx_fee_type, fpx_fee_rate, fpx_data['amount'], fpx_data.get('volume', 0)
                     )
                     ewallet_fee_amount = calculate_fee(
-                        ewallet_fee_type, ewallet_fee_rate, ewallet_data['amount'], ewallet_data['volume']
+                        ewallet_fee_type, ewallet_fee_rate, ewallet_data['amount'], ewallet_data.get('volume', 0)
                     )
                     
                     record_data = {
@@ -106,6 +118,7 @@ def init_deposit():
                         'fpx_fee_rate': fpx_fee_rate,
                         'fpx_fee_amount': fpx_fee_amount,
                         'fpx_gross': r(fpx_data['amount'] - (fpx_fee_amount or 0)),
+                        'fpx_settlement_rule': fpx_rule,
                         'fpx_settlement_date': fpx_settlement_date,
                         'ewallet_amount': r(ewallet_data['amount']),
                         'ewallet_volume': ewallet_data['volume'],
@@ -113,6 +126,7 @@ def init_deposit():
                         'ewallet_fee_rate': ewallet_fee_rate,
                         'ewallet_fee_amount': ewallet_fee_amount,
                         'ewallet_gross': r(ewallet_data['amount'] - (ewallet_fee_amount or 0)),
+                        'ewallet_settlement_rule': ewallet_rule,
                         'ewallet_settlement_date': ewallet_settlement_date,
                         'total_amount': r(fpx_data['amount'] + ewallet_data['amount']),
                         'total_fees': r((fpx_fee_amount or 0) + (ewallet_fee_amount or 0)),
@@ -131,8 +145,7 @@ def init_deposit():
                     count += 1
                 
                 _calculate_available_settlements(
-                    session, merchant, year, month, 
-                    settlement_rules, public_holidays, add_on_holidays
+                    session, merchant, year, month, public_holidays, add_on_holidays
                 )
         
         session.commit()
@@ -146,15 +159,16 @@ def init_deposit():
         session.close()
 
 
-def _get_settlement_rule(rules: Dict[str, str], channel: str) -> str:
-    return rules.get(channel.lower(), 'T+1')
-
-
 def _calculate_available_settlements(
     session, merchant: str, year: int, month: int,
-    settlement_rules: Dict[str, str], public_holidays: Set[str], add_on_holidays: Set[str]
+    public_holidays: Set[str], add_on_holidays: Set[str]
 ):
     date_prefix = f"{year}-{month:02d}"
+    
+    deposits = session.query(Deposit).filter(
+        Deposit.merchant == merchant,
+        Deposit.transaction_date.like(f"{date_prefix}%")
+    ).all()
     
     prev_month = month - 1
     prev_year = year
@@ -163,54 +177,30 @@ def _calculate_available_settlements(
         prev_year = year - 1
     prev_date_prefix = f"{prev_year}-{prev_month:02d}"
     
-    prev_kira = session.query(
-        func.substr(KiraTransaction.transaction_date, 1, 10).label('tx_date'),
-        KiraTransaction.payment_method,
-        func.sum(KiraTransaction.settlement_amount).label('settlement_amount'),
-    ).filter(
-        KiraTransaction.merchant == merchant,
-        KiraTransaction.transaction_date.like(f"{prev_date_prefix}%")
-    ).group_by(
-        func.substr(KiraTransaction.transaction_date, 1, 10),
-        KiraTransaction.payment_method
+    prev_deposits = session.query(Deposit).filter(
+        Deposit.merchant == merchant,
+        Deposit.transaction_date.like(f"{prev_date_prefix}%")
     ).all()
     
-    current_kira = session.query(
-        func.substr(KiraTransaction.transaction_date, 1, 10).label('tx_date'),
-        KiraTransaction.payment_method,
-        func.sum(KiraTransaction.settlement_amount).label('settlement_amount'),
-    ).filter(
-        KiraTransaction.merchant == merchant,
-        KiraTransaction.transaction_date.like(f"{date_prefix}%")
-    ).group_by(
-        func.substr(KiraTransaction.transaction_date, 1, 10),
-        KiraTransaction.payment_method
-    ).all()
-    
-    fpx_rule = _get_settlement_rule(settlement_rules, 'FPX')
-    ewallet_rule = _get_settlement_rule(settlement_rules, 'EWALLET')
+    all_deposits = list(prev_deposits) + list(deposits)
     
     fpx_settlement: Dict[str, float] = {}
     ewallet_settlement: Dict[str, float] = {}
     
-    for row in list(prev_kira) + list(current_kira):
-        channel = normalize_channel(row.payment_method)
-        tx_date = row.tx_date
-        settlement_amount = row.settlement_amount or 0
+    for dep in all_deposits:
+        if dep.fpx_settlement_rule and dep.fpx_gross:
+            settlement_date = calculate_settlement_date(
+                dep.transaction_date, dep.fpx_settlement_rule, public_holidays, add_on_holidays
+            )
+            if settlement_date and settlement_date.startswith(date_prefix):
+                fpx_settlement[settlement_date] = fpx_settlement.get(settlement_date, 0) + dep.fpx_gross
         
-        if channel == 'FPX':
-            settlement_date = calculate_settlement_date(tx_date, fpx_rule, public_holidays, add_on_holidays)
+        if dep.ewallet_settlement_rule and dep.ewallet_gross:
+            settlement_date = calculate_settlement_date(
+                dep.transaction_date, dep.ewallet_settlement_rule, public_holidays, add_on_holidays
+            )
             if settlement_date and settlement_date.startswith(date_prefix):
-                fpx_settlement[settlement_date] = fpx_settlement.get(settlement_date, 0) + settlement_amount
-        else:
-            settlement_date = calculate_settlement_date(tx_date, ewallet_rule, public_holidays, add_on_holidays)
-            if settlement_date and settlement_date.startswith(date_prefix):
-                ewallet_settlement[settlement_date] = ewallet_settlement.get(settlement_date, 0) + settlement_amount
-    
-    deposits = session.query(Deposit).filter(
-        Deposit.merchant == merchant,
-        Deposit.transaction_date.like(f"{date_prefix}%")
-    ).all()
+                ewallet_settlement[settlement_date] = ewallet_settlement.get(settlement_date, 0) + dep.ewallet_gross
     
     for deposit in deposits:
         deposit.available_fpx = r(fpx_settlement.get(deposit.transaction_date, 0))
@@ -218,128 +208,223 @@ def _calculate_available_settlements(
         deposit.available_total = r((deposit.available_fpx or 0) + (deposit.available_ewallet or 0))
 
 
-class DepositService:
+class DepositSheetService:
+    _client: Optional[SheetsClient] = None
     
-    def __init__(self):
-        pass
+    @classmethod
+    def get_client(cls) -> SheetsClient:
+        if cls._client is None:
+            cls._client = SheetsClient()
+        return cls._client
     
-    def get_deposit_data(self, merchant: str, year: int, month: int) -> List[Dict[str, Any]]:
+    @classmethod
+    def sync_sheet(cls) -> int:
+        client = cls.get_client()
+        
+        merchant_value = client.read_data(DEPOSIT_SHEET, 'B1')
+        if not merchant_value or not merchant_value[0]:
+            raise ValueError("Merchant not selected")
+        merchant = merchant_value[0][0]
+        
+        period_value = client.read_data(DEPOSIT_SHEET, 'B2')
+        if not period_value or not period_value[0]:
+            raise ValueError("Period not selected")
+        
+        year, month = cls._parse_period(period_value[0][0])
+        if not year or not month:
+            raise ValueError("Invalid period format")
+        
         session = get_session()
         
         try:
-            date_prefix = f"{year}-{month:02d}"
+            add_on_holidays = ParameterService.load_parameters()
+            public_holidays = load_malaysia_holidays()
             
-            records = session.query(Deposit).filter(
-                and_(
-                    Deposit.merchant == merchant,
-                    Deposit.transaction_date.like(f"{date_prefix}%")
-                )
-            ).order_by(Deposit.transaction_date).all()
+            manual_inputs = cls._read_manual_inputs()
+            cls._apply_manual_inputs(session, manual_inputs, public_holidays, add_on_holidays)
             
-            return [self._to_response_dict(rec) for rec in records]
-            
-        finally:
-            session.close()
-    
-    def _to_response_dict(self, record: Deposit) -> Dict[str, Any]:
-        return {
-            'id': record.id,
-            'transaction_date': record.transaction_date,
-            'fpx_amount': record.fpx_amount,
-            'fpx_volume': record.fpx_volume,
-            'fpx_fee_type': record.fpx_fee_type,
-            'fpx_fee_rate': record.fpx_fee_rate,
-            'fpx_fee_amount': record.fpx_fee_amount,
-            'fpx_gross': record.fpx_gross,
-            'fpx_settlement_date': record.fpx_settlement_date,
-            'ewallet_amount': record.ewallet_amount,
-            'ewallet_volume': record.ewallet_volume,
-            'ewallet_fee_type': record.ewallet_fee_type,
-            'ewallet_fee_rate': record.ewallet_fee_rate,
-            'ewallet_fee_amount': record.ewallet_fee_amount,
-            'ewallet_gross': record.ewallet_gross,
-            'ewallet_settlement_date': record.ewallet_settlement_date,
-            'total_amount': record.total_amount,
-            'total_fees': record.total_fees,
-            'available_fpx': record.available_fpx,
-            'available_ewallet': record.available_ewallet,
-            'available_total': record.available_total,
-            'remarks': record.remarks,
-        }
-    
-    def save_fee_inputs(self, fee_data: List[Dict[str, Any]]) -> int:
-        session = get_session()
-        count = 0
-        
-        try:
-            grouped = {}
-            for row in fee_data:
-                deposit_id = row.get('id')
-                channel = row.get('channel')
-                
-                if not deposit_id or not channel:
-                    continue
-                
-                deposit_id = int(deposit_id)
-                if deposit_id not in grouped:
-                    grouped[deposit_id] = {'FPX': {}, 'EWALLET': {}}
-                
-                grouped[deposit_id][channel] = {
-                    'fee_type': row.get('fee_type'),
-                    'fee_rate': to_float(row.get('fee_rate')),
-                    'remarks': row.get('remarks'),
-                }
-            
-            if not grouped:
-                return 0
-            
-            records = session.query(Deposit).filter(
-                Deposit.id.in_(grouped.keys())
-            ).all()
-            
-            records_by_id = {r.id: r for r in records}
-            
-            for deposit_id, channel_data in grouped.items():
-                existing = records_by_id.get(deposit_id)
-                if not existing:
-                    continue
-                
-                fpx_data = channel_data.get('FPX', {})
-                if fpx_data.get('fee_type') is not None or fpx_data.get('fee_rate') is not None:
-                    existing.fpx_fee_type = fpx_data.get('fee_type')
-                    existing.fpx_fee_rate = fpx_data.get('fee_rate')
-                    existing.fpx_fee_amount = calculate_fee(
-                        existing.fpx_fee_type, existing.fpx_fee_rate,
-                        existing.fpx_amount or 0, existing.fpx_volume or 0
-                    )
-                    existing.fpx_gross = r((existing.fpx_amount or 0) - (existing.fpx_fee_amount or 0))
-                
-                ewallet_data = channel_data.get('EWALLET', {})
-                if ewallet_data.get('fee_type') is not None or ewallet_data.get('fee_rate') is not None:
-                    existing.ewallet_fee_type = ewallet_data.get('fee_type')
-                    existing.ewallet_fee_rate = ewallet_data.get('fee_rate')
-                    existing.ewallet_fee_amount = calculate_fee(
-                        existing.ewallet_fee_type, existing.ewallet_fee_rate,
-                        existing.ewallet_amount or 0, existing.ewallet_volume or 0
-                    )
-                    existing.ewallet_gross = r((existing.ewallet_amount or 0) - (existing.ewallet_fee_amount or 0))
-                
-                remarks = fpx_data.get('remarks') or ewallet_data.get('remarks')
-                if remarks:
-                    existing.remarks = remarks
-                
-                existing.total_fees = r((existing.fpx_fee_amount or 0) + (existing.ewallet_fee_amount or 0))
-                
-                count += 1
+            _calculate_available_settlements(
+                session, merchant, year, month, public_holidays, add_on_holidays
+            )
             
             session.commit()
-            logger.info(f"Saved {count} fee inputs")
-            return count
+            
+            date_prefix = f"{year}-{month:02d}"
+            records = session.query(Deposit).filter(
+                Deposit.merchant == merchant,
+                Deposit.transaction_date.like(f"{date_prefix}%")
+            ).order_by(Deposit.transaction_date).all()
+            
+            cls._write_to_sheet(records)
+            
+            return len(records)
             
         except Exception as e:
             session.rollback()
-            logger.error(f"Failed to save fee inputs: {e}")
+            logger.error(f"Failed to sync Deposit sheet: {e}")
             raise
         finally:
             session.close()
-
+    
+    @classmethod
+    def _parse_period(cls, period_str: str) -> tuple:
+        if not period_str:
+            return None, None
+        
+        match = re.match(r'(\w+)\s+(\d{4})', str(period_str))
+        if not match:
+            return None, None
+        
+        month_name = match.group(1)
+        year = int(match.group(2))
+        month = MONTHS.get(month_name)
+        
+        return year, month
+    
+    @classmethod
+    def _read_manual_inputs(cls) -> List[Dict[str, Any]]:
+        client = cls.get_client()
+        data = client.read_data(DEPOSIT_SHEET, DATA_RANGE)
+        
+        manual_inputs = []
+        for row in data:
+            if len(row) < 24 or not row[0]:
+                continue
+            
+            record_id = row[0]
+            fpx_fee_type = row[4] if len(row) > 4 else ''
+            fpx_fee_rate = row[5] if len(row) > 5 else ''
+            fpx_settlement_rule = row[8] if len(row) > 8 else ''
+            ewallet_fee_type = row[12] if len(row) > 12 else ''
+            ewallet_fee_rate = row[13] if len(row) > 13 else ''
+            ewallet_settlement_rule = row[16] if len(row) > 16 else ''
+            remarks = row[23] if len(row) > 23 else ''
+            
+            has_data = any([fpx_fee_type, fpx_fee_rate, fpx_settlement_rule,
+                          ewallet_fee_type, ewallet_fee_rate, ewallet_settlement_rule, remarks])
+            
+            if not has_data:
+                continue
+            
+            manual_inputs.append({
+                'id': int(record_id),
+                'fpx_fee_type': fpx_fee_type if fpx_fee_type else None,
+                'fpx_fee_rate': to_float(fpx_fee_rate) if fpx_fee_rate else None,
+                'fpx_settlement_rule': fpx_settlement_rule if fpx_settlement_rule else None,
+                'ewallet_fee_type': ewallet_fee_type if ewallet_fee_type else None,
+                'ewallet_fee_rate': to_float(ewallet_fee_rate) if ewallet_fee_rate else None,
+                'ewallet_settlement_rule': ewallet_settlement_rule if ewallet_settlement_rule else None,
+                'remarks': remarks if remarks else None,
+            })
+        
+        return manual_inputs
+    
+    @classmethod
+    def _apply_manual_inputs(cls, session, manual_inputs: List[Dict],
+                             public_holidays: Set[str], add_on_holidays: Set[str]) -> int:
+        if not manual_inputs:
+            return 0
+        
+        ids = [m['id'] for m in manual_inputs]
+        records = session.query(Deposit).filter(Deposit.id.in_(ids)).all()
+        records_by_id = {rec.id: rec for rec in records}
+        
+        count = 0
+        for input_data in manual_inputs:
+            record = records_by_id.get(input_data['id'])
+            if not record:
+                continue
+            
+            if input_data['fpx_fee_type'] is not None:
+                record.fpx_fee_type = input_data['fpx_fee_type'].lower()
+            if input_data['fpx_fee_rate'] is not None:
+                record.fpx_fee_rate = input_data['fpx_fee_rate']
+            if input_data['fpx_settlement_rule'] is not None:
+                record.fpx_settlement_rule = input_data['fpx_settlement_rule'].upper()
+                record.fpx_settlement_date = calculate_settlement_date(
+                    record.transaction_date, record.fpx_settlement_rule,
+                    public_holidays, add_on_holidays
+                )
+            
+            if input_data['ewallet_fee_type'] is not None:
+                record.ewallet_fee_type = input_data['ewallet_fee_type'].lower()
+            if input_data['ewallet_fee_rate'] is not None:
+                record.ewallet_fee_rate = input_data['ewallet_fee_rate']
+            if input_data['ewallet_settlement_rule'] is not None:
+                record.ewallet_settlement_rule = input_data['ewallet_settlement_rule'].upper()
+                record.ewallet_settlement_date = calculate_settlement_date(
+                    record.transaction_date, record.ewallet_settlement_rule,
+                    public_holidays, add_on_holidays
+                )
+            
+            if input_data['remarks'] is not None:
+                record.remarks = input_data['remarks']
+            
+            record.fpx_fee_amount = calculate_fee(
+                record.fpx_fee_type, record.fpx_fee_rate,
+                record.fpx_amount or 0, record.fpx_volume or 0
+            )
+            record.fpx_gross = r((record.fpx_amount or 0) - (record.fpx_fee_amount or 0))
+            
+            record.ewallet_fee_amount = calculate_fee(
+                record.ewallet_fee_type, record.ewallet_fee_rate,
+                record.ewallet_amount or 0, record.ewallet_volume or 0
+            )
+            record.ewallet_gross = r((record.ewallet_amount or 0) - (record.ewallet_fee_amount or 0))
+            
+            record.total_fees = r((record.fpx_fee_amount or 0) + (record.ewallet_fee_amount or 0))
+            
+            count += 1
+        
+        logger.info(f"Applied {count} manual inputs to Deposit")
+        return count
+    
+    @classmethod
+    def _write_to_sheet(cls, records: List[Deposit]):
+        client = cls.get_client()
+        
+        rows = []
+        for rec in records:
+            rows.append([
+                rec.id,
+                rec.transaction_date or '',
+                rec.fpx_amount or '',
+                rec.fpx_volume or '',
+                rec.fpx_fee_type or '',
+                rec.fpx_fee_rate or '',
+                rec.fpx_fee_amount or '',
+                rec.fpx_gross or '',
+                rec.fpx_settlement_rule or '',
+                rec.fpx_settlement_date or '',
+                rec.ewallet_amount or '',
+                rec.ewallet_volume or '',
+                rec.ewallet_fee_type or '',
+                rec.ewallet_fee_rate or '',
+                rec.ewallet_fee_amount or '',
+                rec.ewallet_gross or '',
+                rec.ewallet_settlement_rule or '',
+                rec.ewallet_settlement_date or '',
+                rec.total_amount or '',
+                rec.total_fees or '',
+                rec.available_fpx or '',
+                rec.available_ewallet or '',
+                rec.available_total or '',
+                rec.remarks or '',
+            ])
+        
+        worksheet = client.spreadsheet.worksheet(DEPOSIT_SHEET)
+        worksheet.batch_clear([DATA_RANGE])
+        
+        if rows:
+            client.write_data(DEPOSIT_SHEET, rows, f'A{DATA_START_ROW}')
+            
+            end_row = DATA_START_ROW + len(rows)
+            fee_types = ['percentage', 'per_volume', 'flat']
+            settlement_rules = ['T+1', 'T+2', 'T+3']
+            
+            client.set_dropdown_range(DEPOSIT_SHEET, 'E', DATA_START_ROW, end_row, fee_types)
+            client.set_dropdown_range(DEPOSIT_SHEET, 'I', DATA_START_ROW, end_row, settlement_rules)
+            client.set_dropdown_range(DEPOSIT_SHEET, 'M', DATA_START_ROW, end_row, fee_types)
+            client.set_dropdown_range(DEPOSIT_SHEET, 'Q', DATA_START_ROW, end_row, settlement_rules)
+        
+        logger.info(f"Wrote {len(rows)} rows to Deposit sheet")

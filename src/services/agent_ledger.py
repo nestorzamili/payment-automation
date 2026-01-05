@@ -1,332 +1,331 @@
-from typing import List, Dict, Any, Optional
+from typing import Dict, List, Any, Optional
 from calendar import monthrange
+import re
 
 from sqlalchemy import and_
 
 from src.core.database import get_session
-from src.core.models import AgentLedger
+from src.core.models import AgentLedger, Deposit
 from src.core.logger import get_logger
 from src.services.client import SheetsClient
+from src.utils.helpers import r, to_float
 
 logger = get_logger(__name__)
 
+AGENT_LEDGER_SHEET = 'Agents Balance & Settlement Ledger'
+DATA_START_ROW = 5
+DATA_RANGE = 'A5:O50'
 
-class AgentLedgerService:
+MONTHS = {
+    'Jan': 1, 'Feb': 2, 'Mar': 3, 'Apr': 4, 'May': 5, 'Jun': 6,
+    'Jul': 7, 'Aug': 8, 'Sep': 9, 'Oct': 10, 'Nov': 11, 'Dec': 12
+}
+
+
+def init_agent_ledger(merchant: str, year: int, month: int):
+    session = get_session()
     
-    def __init__(self, sheets_client: Optional[SheetsClient] = None):
-        self.sheets_client = sheets_client or SheetsClient()
-    
-    def _r(self, value):
-        return round(value, 2) if value is not None else None
-    
-    def _to_float(self, value):
-        if value is None:
-            return None
-        if isinstance(value, (int, float)):
-            return float(value)
-        if isinstance(value, str):
-            value = value.strip()
-            if not value:
-                return None
-            try:
-                return float(value)
-            except ValueError:
-                return None
-        return None
-    
-    def _aggregate_by_settlement(self, deposits):
-        fpx_by_settlement = {}
-        ewallet_by_settlement = {}
+    try:
+        date_prefix = f"{year}-{month:02d}"
+        _, last_day = monthrange(year, month)
         
-        for dep in deposits:
-            if dep.fpx_settlement_date and dep.fpx_amount:
-                if dep.fpx_settlement_date not in fpx_by_settlement:
-                    fpx_by_settlement[dep.fpx_settlement_date] = []
-                fpx_by_settlement[dep.fpx_settlement_date].append(dep)
-            if dep.ewallet_settlement_date and dep.ewallet_amount:
-                if dep.ewallet_settlement_date not in ewallet_by_settlement:
-                    ewallet_by_settlement[dep.ewallet_settlement_date] = []
-                ewallet_by_settlement[dep.ewallet_settlement_date].append(dep)
+        existing = session.query(AgentLedger.transaction_date).filter(
+            and_(
+                AgentLedger.merchant == merchant,
+                AgentLedger.transaction_date.like(f"{date_prefix}%")
+            )
+        ).all()
         
-        return fpx_by_settlement, ewallet_by_settlement
+        existing_dates = {rec[0] for rec in existing}
+        
+        for day in range(1, last_day + 1):
+            date_str = f"{year}-{month:02d}-{day:02d}"
+            if date_str not in existing_dates:
+                session.add(AgentLedger(merchant=merchant, transaction_date=date_str))
+        
+        session.commit()
+        
+    except Exception as e:
+        session.rollback()
+        logger.error(f"Failed to init agent ledger: {e}")
+        raise
+    finally:
+        session.close()
+
+
+def _aggregate_by_settlement(deposits):
+    fpx_by_settlement = {}
+    ewallet_by_settlement = {}
     
-    def init_from_transactions(self, merchant: str, year: int, month: int):
+    for dep in deposits:
+        if dep.fpx_settlement_date and dep.fpx_amount:
+            if dep.fpx_settlement_date not in fpx_by_settlement:
+                fpx_by_settlement[dep.fpx_settlement_date] = []
+            fpx_by_settlement[dep.fpx_settlement_date].append(dep)
+        if dep.ewallet_settlement_date and dep.ewallet_amount:
+            if dep.ewallet_settlement_date not in ewallet_by_settlement:
+                ewallet_by_settlement[dep.ewallet_settlement_date] = []
+            ewallet_by_settlement[dep.ewallet_settlement_date].append(dep)
+    
+    return fpx_by_settlement, ewallet_by_settlement
+
+
+def _recalculate_balances(session, merchant: str, fpx_by_settlement: dict, ewallet_by_settlement: dict):
+    rows = session.query(AgentLedger).filter(
+        AgentLedger.merchant == merchant
+    ).order_by(AgentLedger.transaction_date).all()
+    
+    prev_balance = 0
+    
+    for row in rows:
+        date = row.transaction_date
+        rate_fpx = row.commission_rate_fpx or 0
+        rate_ewallet = row.commission_rate_ewallet or 0
+        
+        avail_fpx = 0
+        if date in fpx_by_settlement and rate_fpx:
+            fpx_sum = sum(d.fpx_amount or 0 for d in fpx_by_settlement[date])
+            avail_fpx = r(fpx_sum * rate_fpx / 1000) or 0
+        
+        avail_ewallet = 0
+        if date in ewallet_by_settlement and rate_ewallet:
+            ewallet_sum = sum(d.ewallet_amount or 0 for d in ewallet_by_settlement[date])
+            avail_ewallet = r(ewallet_sum * rate_ewallet / 1000) or 0
+        
+        available_total = avail_fpx + avail_ewallet
+        commission_amount = row.commission_amount or 0
+        
+        has_activity = available_total > 0 or commission_amount > 0 or prev_balance != 0
+        
+        if has_activity:
+            row.balance = r(prev_balance + available_total + commission_amount)
+        else:
+            row.balance = None
+        
+        prev_balance = row.balance if row.balance is not None else prev_balance
+
+
+class AgentLedgerSheetService:
+    _client: Optional[SheetsClient] = None
+    
+    @classmethod
+    def get_client(cls) -> SheetsClient:
+        if cls._client is None:
+            cls._client = SheetsClient()
+        return cls._client
+    
+    @classmethod
+    def sync_sheet(cls) -> int:
+        client = cls.get_client()
+        
+        merchant_value = client.read_data(AGENT_LEDGER_SHEET, 'B1')
+        if not merchant_value or not merchant_value[0]:
+            raise ValueError("Merchant not selected")
+        merchant = merchant_value[0][0]
+        
+        period_value = client.read_data(AGENT_LEDGER_SHEET, 'B2')
+        if not period_value or not period_value[0]:
+            raise ValueError("Period not selected")
+        
+        year, month = cls._parse_period(period_value[0][0])
+        if not year or not month:
+            raise ValueError("Invalid period format")
+        
         session = get_session()
         
         try:
-            date_prefix = f"{year}-{month:02d}"
-            _, last_day = monthrange(year, month)
+            manual_inputs = cls._read_manual_inputs()
+            cls._apply_manual_inputs(session, manual_inputs)
             
-            existing = session.query(AgentLedger.transaction_date).filter(
-                and_(
-                    AgentLedger.merchant == merchant,
-                    AgentLedger.transaction_date.like(f"{date_prefix}%")
-                )
-            ).all()
+            deposits = session.query(Deposit).filter(Deposit.merchant == merchant).all()
+            fpx_by_settlement, ewallet_by_settlement = _aggregate_by_settlement(deposits)
             
-            existing_dates = {r[0] for r in existing}
-            
-            for day in range(1, last_day + 1):
-                date_str = f"{year}-{month:02d}-{day:02d}"
-                if date_str not in existing_dates:
-                    new_record = AgentLedger(
-                        merchant=merchant,
-                        transaction_date=date_str
-                    )
-                    session.add(new_record)
-            
+            _recalculate_balances(session, merchant, fpx_by_settlement, ewallet_by_settlement)
             session.commit()
+            
+            data = cls._get_ledger_data(session, merchant, year, month, fpx_by_settlement, ewallet_by_settlement)
+            cls._write_to_sheet(data)
+            
+            return len(data)
             
         except Exception as e:
             session.rollback()
-            logger.error(f"Failed to init agent ledger: {e}")
+            logger.error(f"Failed to sync Agent Ledger sheet: {e}")
             raise
         finally:
             session.close()
     
-    def get_ledger_data(self, merchant: str, year: int, month: int) -> List[Dict[str, Any]]:
-        session = get_session()
+    @classmethod
+    def _parse_period(cls, period_str: str) -> tuple:
+        if not period_str:
+            return None, None
         
-        try:
-            from src.core.models import Deposit
-            
-            date_prefix = f"{year}-{month:02d}"
-            
-            all_deposits = session.query(Deposit).filter(
-                Deposit.merchant == merchant
-            ).order_by(Deposit.transaction_date).all()
-            
-            deposit_map = {d.transaction_date: d for d in all_deposits}
-            fpx_by_settlement, ewallet_by_settlement = self._aggregate_by_settlement(all_deposits)
-            
-            month_deposits = [d for d in all_deposits if d.transaction_date.startswith(date_prefix)]
-            
-            self._recalculate_balances(session, merchant, fpx_by_settlement, ewallet_by_settlement)
-            session.commit()
-            
-            ledgers = session.query(AgentLedger).filter(
-                and_(
-                    AgentLedger.merchant == merchant,
-                    AgentLedger.transaction_date.like(f"{date_prefix}%")
-                )
-            ).order_by(AgentLedger.transaction_date).all()
-            
-            ledger_map = {lg.transaction_date: lg for lg in ledgers}
-            
-            result = []
-            for deposit in month_deposits:
-                date = deposit.transaction_date
-                ledger = ledger_map.get(date)
-                
-                kira_fpx = deposit.fpx_amount or 0
-                kira_ewallet = deposit.ewallet_amount or 0
-                
-                rate_fpx = ledger.commission_rate_fpx if ledger else None
-                rate_ewallet = ledger.commission_rate_ewallet if ledger else None
-                
-                fpx_commission = self._r(kira_fpx * rate_fpx / 1000) if rate_fpx else None
-                ewallet_commission = self._r(kira_ewallet * rate_ewallet / 1000) if rate_ewallet else None
-                
-                gross = None
-                if fpx_commission is not None or ewallet_commission is not None:
-                    gross = self._r((fpx_commission or 0) + (ewallet_commission or 0))
-                
-                available_fpx = 0
-                if date in fpx_by_settlement and rate_fpx:
-                    fpx_sum = sum(d.fpx_amount or 0 for d in fpx_by_settlement[date])
-                    available_fpx = self._r(fpx_sum * rate_fpx / 1000) or 0
-                
-                available_ewallet = 0
-                if date in ewallet_by_settlement and rate_ewallet:
-                    ewallet_sum = sum(d.ewallet_amount or 0 for d in ewallet_by_settlement[date])
-                    available_ewallet = self._r(ewallet_sum * rate_ewallet / 1000) or 0
-                
-                available_total = self._r(available_fpx + available_ewallet)
-                
-                row = {
-                    'transaction_date': date,
-                    'kira_amount_fpx': kira_fpx,
-                    'commission_rate_fpx': rate_fpx,
-                    'fpx_commission': fpx_commission,
-                    'kira_amount_ewallet': kira_ewallet,
-                    'commission_rate_ewallet': rate_ewallet,
-                    'ewallet_commission': ewallet_commission,
-                    'gross_amount': gross,
-                    'available_fpx': available_fpx,
-                    'available_ewallet': available_ewallet,
-                    'available_total': available_total,
-                    'volume': ledger.volume if ledger else None,
-                    'commission_rate': ledger.commission_rate if ledger else None,
-                    'commission_amount': ledger.commission_amount if ledger else None,
-                    'balance': ledger.balance if ledger else None,
-                    'updated_at': ledger.updated_at if ledger else None
-                }
-                
-                if ledger:
-                    row['id'] = ledger.id
-                
-                result.append(row)
-            
-            return result
-            
-        finally:
-            session.close()
+        match = re.match(r'(\w+)\s+(\d{4})', str(period_str))
+        if not match:
+            return None, None
+        
+        month_name = match.group(1)
+        year = int(match.group(2))
+        month = MONTHS.get(month_name)
+        
+        return year, month
     
-    def save_manual_data(self, manual_data: List[Dict[str, Any]]) -> int:
-        session = get_session()
+    @classmethod
+    def _read_manual_inputs(cls) -> List[Dict[str, Any]]:
+        client = cls.get_client()
+        data = client.read_data(AGENT_LEDGER_SHEET, DATA_RANGE)
+        
+        manual_inputs = []
+        for row in data:
+            if not row or not row[0]:
+                continue
+            
+            record_id = row[0]
+            commission_rate_fpx = row[2] if len(row) > 2 else ''
+            commission_rate_ewallet = row[4] if len(row) > 4 else ''
+            volume = row[10] if len(row) > 10 else ''
+            commission_rate = row[11] if len(row) > 11 else ''
+            
+            if not any([commission_rate_fpx, commission_rate_ewallet, volume, commission_rate]):
+                continue
+            
+            manual_inputs.append({
+                'id': int(record_id),
+                'commission_rate_fpx': to_float(commission_rate_fpx) if commission_rate_fpx else None,
+                'commission_rate_ewallet': to_float(commission_rate_ewallet) if commission_rate_ewallet else None,
+                'volume': to_float(volume) if volume else None,
+                'commission_rate': to_float(commission_rate) if commission_rate else None,
+            })
+        
+        return manual_inputs
+    
+    @classmethod
+    def _apply_manual_inputs(cls, session, manual_inputs: List[Dict]) -> int:
+        if not manual_inputs:
+            return 0
+        
+        ids = [m['id'] for m in manual_inputs]
+        records = session.query(AgentLedger).filter(AgentLedger.id.in_(ids)).all()
+        records_by_id = {rec.id: rec for rec in records}
+        
         count = 0
+        for input_data in manual_inputs:
+            record = records_by_id.get(input_data['id'])
+            if not record:
+                continue
+            
+            if input_data['commission_rate_fpx'] is not None:
+                record.commission_rate_fpx = input_data['commission_rate_fpx']
+            if input_data['commission_rate_ewallet'] is not None:
+                record.commission_rate_ewallet = input_data['commission_rate_ewallet']
+            if input_data['volume'] is not None:
+                record.volume = input_data['volume']
+            if input_data['commission_rate'] is not None:
+                record.commission_rate = input_data['commission_rate']
+                if record.volume:
+                    record.commission_amount = r(record.volume * record.commission_rate)
+            
+            count += 1
         
-        try:
-            valid_ids = []
-            for row in manual_data:
-                ledger_id = row.get('id')
-                if ledger_id and isinstance(ledger_id, (int, float)):
-                    valid_ids.append(int(ledger_id))
-            
-            if not valid_ids:
-                return 0
-            
-            records = session.query(AgentLedger).filter(
-                AgentLedger.id.in_(valid_ids)
-            ).all()
-            
-            records_by_id = {r.id: r for r in records}
-            manual_by_id = {int(row['id']): row for row in manual_data if row.get('id')}
-            
-            for ledger_id in valid_ids:
-                existing = records_by_id.get(ledger_id)
-                row = manual_by_id.get(ledger_id)
-                
-                if not existing or not row:
-                    continue
-                
-                rate_fpx_raw = row.get('commission_rate_fpx')
-                if rate_fpx_raw == 'CLEAR':
-                    existing.commission_rate_fpx = None
-                elif rate_fpx_raw is not None:
-                    existing.commission_rate_fpx = self._to_float(rate_fpx_raw)
-                
-                rate_ewallet_raw = row.get('commission_rate_ewallet')
-                if rate_ewallet_raw == 'CLEAR':
-                    existing.commission_rate_ewallet = None
-                elif rate_ewallet_raw is not None:
-                    existing.commission_rate_ewallet = self._to_float(rate_ewallet_raw)
-                
-                volume_raw = row.get('volume')
-                if volume_raw == 'CLEAR':
-                    existing.volume = None
-                    existing.commission_amount = None
-                elif volume_raw is not None:
-                    existing.volume = self._to_float(volume_raw)
-                
-                rate_raw = row.get('commission_rate')
-                if rate_raw == 'CLEAR':
-                    existing.commission_rate = None
-                    existing.commission_amount = None
-                elif rate_raw is not None:
-                    existing.commission_rate = self._to_float(rate_raw)
-                
-                if existing.volume is not None and existing.commission_rate is not None:
-                    existing.commission_amount = self._r(existing.volume * existing.commission_rate)
-                else:
-                    existing.commission_amount = None
-                
-                count += 1
-            
-            session.commit()
-            logger.info(f"Updated {count} agent ledger rows")
-            return count
-            
-        except Exception as e:
-            session.rollback()
-            logger.error(f"Failed to save agent manual data: {e}")
-            raise
-        finally:
-            session.close()
+        logger.info(f"Applied {count} manual inputs to Agent Ledger")
+        return count
     
-    def _recalculate_balances(self, session, merchant: str, 
-                               fpx_by_settlement: dict = None, 
-                               ewallet_by_settlement: dict = None):
-        from src.core.models import Deposit
+    @classmethod
+    def _get_ledger_data(cls, session, merchant: str, year: int, month: int,
+                         fpx_by_settlement: dict, ewallet_by_settlement: dict) -> List[Dict]:
+        date_prefix = f"{year}-{month:02d}"
         
-        rows = session.query(AgentLedger).filter(
-            AgentLedger.merchant == merchant
+        deposits = session.query(Deposit).filter(
+            and_(
+                Deposit.merchant == merchant,
+                Deposit.transaction_date.like(f"{date_prefix}%")
+            )
+        ).order_by(Deposit.transaction_date).all()
+        
+        ledgers = session.query(AgentLedger).filter(
+            and_(
+                AgentLedger.merchant == merchant,
+                AgentLedger.transaction_date.like(f"{date_prefix}%")
+            )
         ).order_by(AgentLedger.transaction_date).all()
         
-        if fpx_by_settlement is None or ewallet_by_settlement is None:
-            deposits = session.query(Deposit).filter(
-                Deposit.merchant == merchant
-            ).all()
-            fpx_by_settlement, ewallet_by_settlement = self._aggregate_by_settlement(deposits)
+        ledger_map = {lg.transaction_date: lg for lg in ledgers}
         
-        prev_balance = 0
-        
-        for row in rows:
-            date = row.transaction_date
-            rate_fpx = row.commission_rate_fpx or 0
-            rate_ewallet = row.commission_rate_ewallet or 0
+        result = []
+        for deposit in deposits:
+            date = deposit.transaction_date
+            ledger = ledger_map.get(date)
             
-            avail_fpx = 0
+            kira_fpx = deposit.fpx_amount or 0
+            kira_ewallet = deposit.ewallet_amount or 0
+            
+            rate_fpx = ledger.commission_rate_fpx if ledger else None
+            rate_ewallet = ledger.commission_rate_ewallet if ledger else None
+            
+            fpx_commission = r(kira_fpx * rate_fpx / 1000) if rate_fpx else None
+            ewallet_commission = r(kira_ewallet * rate_ewallet / 1000) if rate_ewallet else None
+            
+            gross = None
+            if fpx_commission is not None or ewallet_commission is not None:
+                gross = r((fpx_commission or 0) + (ewallet_commission or 0))
+            
+            available_fpx = 0
             if date in fpx_by_settlement and rate_fpx:
                 fpx_sum = sum(d.fpx_amount or 0 for d in fpx_by_settlement[date])
-                avail_fpx = self._r(fpx_sum * rate_fpx / 1000) or 0
+                available_fpx = r(fpx_sum * rate_fpx / 1000) or 0
             
-            avail_ewallet = 0
+            available_ewallet = 0
             if date in ewallet_by_settlement and rate_ewallet:
                 ewallet_sum = sum(d.ewallet_amount or 0 for d in ewallet_by_settlement[date])
-                avail_ewallet = self._r(ewallet_sum * rate_ewallet / 1000) or 0
+                available_ewallet = r(ewallet_sum * rate_ewallet / 1000) or 0
             
-            available_total = avail_fpx + avail_ewallet
-            commission_amount = row.commission_amount or 0
-            
-            has_activity = (
-                available_total > 0
-                or commission_amount > 0
-                or prev_balance != 0
-            )
-            
-            if has_activity:
-                row.balance = self._r(
-                    prev_balance 
-                    + available_total 
-                    + commission_amount
-                )
-            else:
-                row.balance = None
-            
-            prev_balance = row.balance if row.balance is not None else prev_balance
+            result.append({
+                'id': ledger.id if ledger else '',
+                'transaction_date': date,
+                'commission_rate_fpx': rate_fpx,
+                'fpx_commission': fpx_commission,
+                'commission_rate_ewallet': rate_ewallet,
+                'ewallet_commission': ewallet_commission,
+                'gross_amount': gross,
+                'available_fpx': available_fpx,
+                'available_ewallet': available_ewallet,
+                'available_total': r(available_fpx + available_ewallet),
+                'volume': ledger.volume if ledger else None,
+                'commission_rate': ledger.commission_rate if ledger else None,
+                'commission_amount': ledger.commission_amount if ledger else None,
+                'balance': ledger.balance if ledger else None,
+            })
+        
+        return result
     
-    def upload_to_sheet(self, merchant: str, year: int, month: int, sheet_name: str) -> Dict[str, Any]:
-        try:
-            data = self.get_ledger_data(merchant, year, month)
-            
-            if not data:
-                return {'success': False, 'error': 'No data to upload'}
-            
-            columns = [
-                'id', 'transaction_date',
-                'kira_amount_fpx', 'commission_rate_fpx', 'fpx_commission',
-                'kira_amount_ewallet', 'commission_rate_ewallet', 'ewallet_commission',
-                'gross_amount',
-                'available_fpx', 'available_ewallet', 'available_total',
-                'volume', 'commission_rate', 'commission_amount',
-                'balance'
-            ]
-            
-            rows = []
-            for record in data:
-                row = [record.get(col, '') for col in columns]
-                rows.append(row)
-            
-            self.sheets_client.write_data(sheet_name, rows, start_cell='A5')
-            
-            logger.info(f"Uploaded {len(rows)} agent ledger rows to {sheet_name}")
-            return {
-                'success': True,
-                'rows_uploaded': len(rows),
-                'sheet_name': sheet_name
-            }
-            
-        except Exception as e:
-            logger.error(f"Failed to upload to sheet: {e}")
-            return {'success': False, 'error': str(e)}
+    @classmethod
+    def _write_to_sheet(cls, data: List[Dict]):
+        client = cls.get_client()
+        
+        rows = []
+        for rec in data:
+            rows.append([
+                rec.get('id', ''),
+                rec.get('transaction_date', ''),
+                rec.get('commission_rate_fpx') or '',
+                rec.get('fpx_commission') or '',
+                rec.get('commission_rate_ewallet') or '',
+                rec.get('ewallet_commission') or '',
+                rec.get('gross_amount') or '',
+                rec.get('available_fpx') or '',
+                rec.get('available_ewallet') or '',
+                rec.get('available_total') or '',
+                rec.get('volume') or '',
+                rec.get('commission_rate') or '',
+                rec.get('commission_amount') or '',
+                rec.get('balance') or '',
+                '',
+            ])
+        
+        worksheet = client.spreadsheet.worksheet(AGENT_LEDGER_SHEET)
+        worksheet.batch_clear([DATA_RANGE])
+        
+        if rows:
+            client.write_data(AGENT_LEDGER_SHEET, rows, f'A{DATA_START_ROW}')
+        
+        logger.info(f"Wrote {len(rows)} rows to Agent Ledger sheet")

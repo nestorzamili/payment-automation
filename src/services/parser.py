@@ -10,8 +10,8 @@ from src.parser.axai import AxaiParser
 from src.parser.kira import KiraParser
 from src.services.kira_pg import init_kira_pg
 from src.services.deposit import init_deposit
-from src.services.merchant_ledger import MerchantLedgerService
-from src.services.agent_ledger import AgentLedgerService
+from src.services.merchant_ledger import init_merchant_ledger
+from src.services.agent_ledger import init_agent_ledger
 from src.services.parameters import ParameterService
 
 logger = get_logger(__name__)
@@ -27,7 +27,7 @@ def run_parse_job(run_id: str) -> dict:
     
     init_kira_pg()
     init_deposit()
-    _init_ledgers(MerchantLedgerService, AgentLedgerService)
+    _init_ledgers()
     
     result = _get_dropdown_data()
     _setup_dropdowns(result['merchants'], result['periods'])
@@ -74,7 +74,7 @@ def _parse_pg_files(run_id: str):
             logger.error(f"{label} parse error: {e}")
 
 
-def _init_ledgers(MerchantLedgerService, AgentLedgerService):
+def _init_ledgers():
     session = get_session()
     
     try:
@@ -92,9 +92,6 @@ def _init_ledgers(MerchantLedgerService, AgentLedgerService):
             logger.info("No transactions found, skipping ledger init")
             return
         
-        merchant_service = MerchantLedgerService()
-        agent_service = AgentLedgerService()
-        
         periods = []
         for ym in sorted(year_months):
             year = int(ym[:4])
@@ -104,8 +101,8 @@ def _init_ledgers(MerchantLedgerService, AgentLedgerService):
         
         for merchant, year, month in periods:
             try:
-                merchant_service.init_from_transactions(merchant, year, month)
-                agent_service.init_from_transactions(merchant, year, month)
+                init_merchant_ledger(merchant, year, month)
+                init_agent_ledger(merchant, year, month)
             except Exception as e:
                 logger.error(f"Failed to init ledger for {merchant} {year}-{month}: {e}")
         

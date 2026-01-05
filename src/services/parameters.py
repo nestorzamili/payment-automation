@@ -15,7 +15,7 @@ class ParameterService:
     _cache = None
     
     @classmethod
-    def load_parameters(cls) -> tuple[Dict[str, str], Set[str]]:
+    def load_parameters(cls) -> Set[str]:
         if cls._cache is None:
             cls._cache = cls._fetch_from_db()
         return cls._cache
@@ -25,18 +25,15 @@ class ParameterService:
         cls._cache = None
     
     @staticmethod
-    def _fetch_from_db() -> tuple[Dict[str, str], Set[str]]:
+    def _fetch_from_db() -> Set[str]:
         session = get_session()
         try:
             params = session.query(Parameter).all()
-            settlement_rules = {}
             add_on_holidays = set()
             for p in params:
-                if p.type == 'SETTLEMENT_RULES':
-                    settlement_rules[p.key.lower()] = p.value
-                elif p.type == 'ADD_ON_HOLIDAYS':
+                if p.type == 'ADD_ON_HOLIDAYS':
                     add_on_holidays.add(p.key)
-            return settlement_rules, add_on_holidays
+            return add_on_holidays
         finally:
             session.close()
     
@@ -132,30 +129,21 @@ class ParameterService:
         try:
             params = session.query(Parameter).all()
             
-            settlement_rules = {}
             add_on_holidays = []
             
             for p in params:
-                if p.type == 'SETTLEMENT_RULES':
-                    settlement_rules[p.key] = p.value
-                elif p.type == 'ADD_ON_HOLIDAYS':
+                if p.type == 'ADD_ON_HOLIDAYS':
                     add_on_holidays.append({
                         'date': p.key,
                         'description': p.description
                     })
             
             return {
-                'settlement_rules': settlement_rules,
                 'add_on_holidays': add_on_holidays
             }
             
         finally:
             session.close()
     
-    def get_settlement_rules(self) -> Dict[str, str]:
-        rules, _ = self.load_parameters()
-        return rules
-    
     def get_add_on_holidays(self) -> Set[str]:
-        _, holidays = self.load_parameters()
-        return holidays
+        return self.load_parameters()
