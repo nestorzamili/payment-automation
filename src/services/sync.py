@@ -14,7 +14,9 @@ from src.services.job_sheet import JobSheetService
 from src.utils.date_range import DateRangeService
 
 logger = get_logger(__name__)
-date_service = DateRangeService()
+
+def _get_date_service():
+    return DateRangeService()
 
 _sync_running = False
 _current_run_id: Optional[str] = None
@@ -112,7 +114,7 @@ def _run_full_sync(run_id: str):
     
     try:
         accounts = load_accounts()
-        platform_ranges = date_service.get_platform_ranges()
+        platform_ranges = _get_date_service().get_platform_ranges()
         all_jobs = []
         
         for platform in ['kira', 'axai', 'm1', 'fiuu']:
@@ -151,7 +153,7 @@ def _run_platform_sync(run_id: str, platform: str):
             logger.warning(f"No accounts found for platform: {platform}")
             return
         
-        platform_ranges = date_service.get_platform_ranges()
+        platform_ranges = _get_date_service().get_platform_ranges()
         date_range = platform_ranges.get(platform)
         
         if not date_range:
