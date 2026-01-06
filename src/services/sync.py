@@ -112,30 +112,17 @@ def _run_full_sync(run_id: str):
     
     try:
         accounts = load_accounts()
-        
-        kira_accounts = [a for a in accounts if a['platform'] == 'kira']
-        pg_accounts = [a for a in accounts if a['platform'] in ('m1', 'axai')]
-        fiuu_accounts = [a for a in accounts if a['platform'] == 'fiuu']
-        
+        platform_ranges = date_service.get_platform_ranges()
         all_jobs = []
         
-        kira_range = date_service.get_date_range('kira')
-        if kira_range and kira_accounts:
-            from_date, to_date = kira_range
-            jobs = _create_download_jobs(run_id, kira_accounts, from_date, to_date)
-            all_jobs.extend(jobs)
-        
-        pg_range = date_service.get_date_range('pg')
-        if pg_range and pg_accounts:
-            from_date, to_date = pg_range
-            jobs = _create_download_jobs(run_id, pg_accounts, from_date, to_date)
-            all_jobs.extend(jobs)
-        
-        fiuu_range = date_service.get_date_range('fiuu')
-        if fiuu_range and fiuu_accounts:
-            from_date, to_date = fiuu_range
-            jobs = _create_download_jobs(run_id, fiuu_accounts, from_date, to_date)
-            all_jobs.extend(jobs)
+        for platform in ['kira', 'axai', 'm1', 'fiuu']:
+            platform_accounts = [a for a in accounts if a['platform'] == platform]
+            date_range = platform_ranges.get(platform)
+            
+            if date_range and platform_accounts:
+                from_date, to_date = date_range
+                jobs = _create_download_jobs(run_id, platform_accounts, from_date, to_date, platform)
+                all_jobs.extend(jobs)
         
         _update_sheet(run_id)
         
@@ -158,27 +145,21 @@ def _run_platform_sync(run_id: str, platform: str):
     
     try:
         accounts = load_accounts()
-        
-        if platform == 'pg':
-            target_accounts = [a for a in accounts if a['platform'] in ('m1', 'axai')]
-        elif platform in ('m1', 'axai'):
-            target_accounts = [a for a in accounts if a['platform'] == platform]
-        else:
-            target_accounts = [a for a in accounts if a['platform'] == platform]
+        target_accounts = [a for a in accounts if a['platform'] == platform]
         
         if not target_accounts:
             logger.warning(f"No accounts found for platform: {platform}")
             return
         
-        date_key = 'pg' if platform in ('m1', 'axai', 'pg') else platform
-        date_range = date_service.get_date_range(date_key)
+        platform_ranges = date_service.get_platform_ranges()
+        date_range = platform_ranges.get(platform)
         
         if not date_range:
             logger.info(f"No date range for {platform}, already up to date")
             return
         
         from_date, to_date = date_range
-        jobs = _create_download_jobs(run_id, target_accounts, from_date, to_date)
+        jobs = _create_download_jobs(run_id, target_accounts, from_date, to_date, platform)
         _update_sheet(run_id)
         
         if jobs:
@@ -208,14 +189,14 @@ def _run_parse_only(run_id: str):
         _current_run_id = None
 
 
-def _create_download_jobs(run_id: str, accounts: list, from_date: str, to_date: str) -> List[Tuple[int, dict, str, str]]:
+def _create_download_jobs(run_id: str, accounts: list, from_date: str, to_date: str, platform_group: str) -> List[Tuple[int, dict, str, str]]:
     jobs = []
     for account in accounts:
         source_type = 'api' if account['platform'] == 'fiuu' else 'browser'
         job_id = job_manager.create_job(
             job_type='download',
             run_id=run_id,
-            platform=account['platform'],
+            platform=platform_group,
             account_label=account['label'],
             source_type=source_type,
             from_date=from_date,
