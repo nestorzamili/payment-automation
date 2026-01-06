@@ -18,6 +18,7 @@ class DateRangeService:
     def __init__(self):
         settings = load_settings()
         self.max_range_days = settings['download'].get('max_range_days', 30)
+        self.platform_max_range = {'kira': 15}
         default_start = settings['download'].get('default_start_date', '2025-12-01')
         self.default_start_date = datetime.strptime(default_start, '%Y-%m-%d').date()
     
@@ -31,20 +32,29 @@ class DateRangeService:
         progress = self._get_all_progress()
         
         if not progress:
-            target_date = self._calculate_target_date(self.default_start_date, today)
-            logger.info(f"No completed downloads, all platforms start from {self.default_start_date} to {target_date}")
-            return {p: (self.default_start_date.strftime('%Y-%m-%d'), target_date.strftime('%Y-%m-%d')) for p in PLATFORMS}
+            ranges = {}
+            for p in PLATFORMS:
+                target_date = self._calculate_target_date(self.default_start_date, today, p)
+                ranges[p] = (self.default_start_date.strftime('%Y-%m-%d'), target_date.strftime('%Y-%m-%d'))
+            logger.info(f"No completed downloads, starting all platforms from {self.default_start_date}")
+            return ranges
         
         max_progress = max(progress.values())
         all_synced = len(progress) == len(PLATFORMS) and all(d == max_progress for d in progress.values())
         
         if all_synced:
-            target_date = self._calculate_target_date(max_progress, today)
-            if target_date <= max_progress:
+            ranges = {}
+            for p in PLATFORMS:
+                target_date = self._calculate_target_date(max_progress, today, p)
+                if target_date <= max_progress:
+                    ranges[p] = None
+                else:
+                    ranges[p] = (max_progress.strftime('%Y-%m-%d'), target_date.strftime('%Y-%m-%d'))
+            if all(r is None for r in ranges.values()):
                 logger.info(f"All platforms up to date at {max_progress}")
-                return {p: None for p in PLATFORMS}
-            logger.info(f"All platforms synced at {max_progress}, advancing to {target_date}")
-            return {p: (max_progress.strftime('%Y-%m-%d'), target_date.strftime('%Y-%m-%d')) for p in PLATFORMS}
+            else:
+                logger.info(f"All platforms synced at {max_progress}, advancing")
+            return ranges
         
         ranges = {}
         for platform in PLATFORMS:
@@ -54,26 +64,16 @@ class DateRangeService:
                 logger.info(f"{platform}: Already at max progress ({from_date})")
                 ranges[platform] = None
             else:
-                to_date = self._calculate_target_date(from_date, max_progress)
+                to_date = self._calculate_target_date(from_date, max_progress, platform)
                 logger.info(f"{platform}: Catch up {from_date} -> {to_date}")
                 ranges[platform] = (from_date.strftime('%Y-%m-%d'), to_date.strftime('%Y-%m-%d'))
         
         return ranges
     
     def _get_all_progress(self) -> Dict[str, date]:
-        from src.core.database import DATABASE_PATH
-        logger.info(f"Using database: {DATABASE_PATH}")
-        
         session = get_session()
         try:
             session.expire_all()
-            
-            all_jobs = session.query(Job).filter(
-                Job.job_type == 'download',
-                Job.status == 'completed'
-            ).all()
-            logger.info(f"All completed download jobs: {[(j.platform, j.to_date) for j in all_jobs]}")
-            
             progress = {}
             for platform in PLATFORMS:
                 job = session.query(Job).filter(
@@ -84,15 +84,14 @@ class DateRangeService:
                 
                 if job and job.to_date:
                     progress[platform] = datetime.strptime(job.to_date, '%Y-%m-%d').date()
-                    logger.info(f"{platform}: Last completed {progress[platform]}")
             
-            logger.info(f"Progress dict: {progress}")
             return progress
         finally:
             session.close()
     
-    def _calculate_target_date(self, from_date: date, target: date) -> date:
+    def _calculate_target_date(self, from_date: date, target: date, platform: str = None) -> date:
+        max_range = self.platform_max_range.get(platform, self.max_range_days) if platform else self.max_range_days
         gap = (target - from_date).days
-        if gap > self.max_range_days:
-            return from_date + timedelta(days=self.max_range_days)
+        if gap > max_range:
+            return from_date + timedelta(days=max_range)
         return target
