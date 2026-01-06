@@ -8,7 +8,7 @@ from src.core.models import KiraPG, KiraTransaction, PGTransaction
 from src.core.logger import get_logger
 from src.services.client import SheetsClient
 from src.services.parameters import ParameterService
-from src.utils.helpers import normalize_channel, r, to_float
+from src.utils.helpers import categorize_channel, round_decimal, to_float
 from src.utils.holiday import load_malaysia_holidays, calculate_settlement_date
 
 logger = get_logger(__name__)
@@ -60,7 +60,7 @@ def init_kira_pg():
         
         kira_map: Dict[tuple, Dict] = {}
         for row in kira_agg:
-            channel = normalize_channel(row.payment_method)
+            channel = categorize_channel(row.payment_method)
             key = (row.pg_account_label, row.tx_date, channel)
             if key not in kira_map:
                 kira_map[key] = {'kira_amount': 0, 'mdr': 0, 'kira_settlement_amount': 0}
@@ -70,7 +70,7 @@ def init_kira_pg():
         
         pg_map: Dict[tuple, Dict] = {}
         for row in pg_agg:
-            channel = normalize_channel(row.channel)
+            channel = categorize_channel(row.channel)
             key = (row.pg_account_label, row.tx_date, channel)
             if key not in pg_map:
                 pg_map[key] = {'pg_amount': 0, 'volume': 0}
@@ -100,18 +100,18 @@ def init_kira_pg():
             remarks = existing_record.remarks if existing_record else None
             
             fees = _calculate_fee(fee_type, fee_rate, pg_data['pg_amount'])
-            settlement_amount = r(pg_data['pg_amount'] - fees) if fees is not None else None
-            daily_variance = r(kira_data['kira_amount'] - pg_data['pg_amount'])
+            settlement_amount = round_decimal(pg_data['pg_amount'] - fees) if fees is not None else None
+            daily_variance = round_decimal(kira_data['kira_amount'] - pg_data['pg_amount'])
             
             records.append({
                 'key': key,
                 'pg_account_label': pg_account_label,
                 'transaction_date': tx_date,
                 'channel': channel,
-                'kira_amount': r(kira_data['kira_amount']),
-                'mdr': r(kira_data['mdr']),
-                'kira_settlement_amount': r(kira_data['kira_settlement_amount']),
-                'pg_amount': r(pg_data['pg_amount']),
+                'kira_amount': round_decimal(kira_data['kira_amount']),
+                'mdr': round_decimal(kira_data['mdr']),
+                'kira_settlement_amount': round_decimal(kira_data['kira_settlement_amount']),
+                'pg_amount': round_decimal(pg_data['pg_amount']),
                 'volume': pg_data['volume'],
                 'settlement_rule': settlement_rule,
                 'settlement_date': settlement_date,
@@ -128,7 +128,7 @@ def init_kira_pg():
         cumulative = 0
         for record in records:
             cumulative += record['daily_variance'] or 0
-            record['cumulative_variance'] = r(cumulative)
+            record['cumulative_variance'] = round_decimal(cumulative)
         
         for record in records:
             key = record.pop('key')
@@ -155,8 +155,8 @@ def _calculate_fee(fee_type: Optional[str], fee_rate: Optional[float], amount: O
     if fee_rate is None:
         return None
     if fee_type == 'flat':
-        return r(fee_rate)
-    return r(amount * fee_rate / 100) if amount else None
+        return round_decimal(fee_rate)
+    return round_decimal(amount * fee_rate / 100) if amount else None
 
 
 def _recalculate_cumulative_variance(session, year_month: str):
@@ -171,7 +171,7 @@ def _recalculate_cumulative_variance(session, year_month: str):
     cumulative = 0
     for record in records:
         cumulative += record.daily_variance or 0
-        record.cumulative_variance = r(cumulative)
+        record.cumulative_variance = round_decimal(cumulative)
 
 
 class KiraPGSheetService:
@@ -305,7 +305,7 @@ class KiraPGSheetService:
             record.remarks = input_data['remarks']
             
             record.fees = _calculate_fee(record.fee_type, record.fee_rate, record.pg_amount)
-            record.settlement_amount = r(record.pg_amount - record.fees) if record.fees is not None else None
+            record.settlement_amount = round_decimal(record.pg_amount - record.fees) if record.fees is not None else None
             
             affected_dates.add(record.transaction_date[:7])
             count += 1
@@ -344,8 +344,9 @@ class KiraPGSheetService:
             ])
         
         worksheet = client.spreadsheet.worksheet(KIRA_PG_SHEET)
+        client.clear_data_validation(KIRA_PG_SHEET, DATA_RANGE)
         worksheet.batch_clear([DATA_RANGE])
-        
+
         if rows:
             client.write_data(KIRA_PG_SHEET, rows, f'A{DATA_START_ROW}')
             

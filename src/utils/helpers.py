@@ -1,4 +1,4 @@
-def normalize_channel(channel: str) -> str:
+def categorize_channel(channel: str) -> str:
     if not channel:
         return 'EWALLET'
     ch_upper = channel.upper().strip()
@@ -7,7 +7,7 @@ def normalize_channel(channel: str) -> str:
     return 'EWALLET'
 
 
-def r(value):
+def round_decimal(value: float) -> float:
     return round(value, 2) if value is not None else None
 
 

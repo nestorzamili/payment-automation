@@ -8,7 +8,7 @@ from src.core.database import get_session
 from src.core.models import AgentLedger, Deposit
 from src.core.logger import get_logger
 from src.services.client import SheetsClient
-from src.utils.helpers import r, to_float
+from src.utils.helpers import round_decimal, to_float
 
 logger = get_logger(__name__)
 
@@ -85,12 +85,12 @@ def _recalculate_balances(session, merchant: str, fpx_by_settlement: dict, ewall
         avail_fpx = 0
         if date in fpx_by_settlement and rate_fpx:
             fpx_sum = sum(d.fpx_amount or 0 for d in fpx_by_settlement[date])
-            avail_fpx = r(fpx_sum * rate_fpx / 1000) or 0
+            avail_fpx = round_decimal(fpx_sum * rate_fpx / 1000) or 0
         
         avail_ewallet = 0
         if date in ewallet_by_settlement and rate_ewallet:
             ewallet_sum = sum(d.ewallet_amount or 0 for d in ewallet_by_settlement[date])
-            avail_ewallet = r(ewallet_sum * rate_ewallet / 1000) or 0
+            avail_ewallet = round_decimal(ewallet_sum * rate_ewallet / 1000) or 0
         
         available_total = avail_fpx + avail_ewallet
         commission_amount = row.commission_amount or 0
@@ -98,7 +98,7 @@ def _recalculate_balances(session, merchant: str, fpx_by_settlement: dict, ewall
         has_activity = available_total > 0 or commission_amount > 0 or prev_balance != 0
         
         if has_activity:
-            row.balance = r(prev_balance + available_total + commission_amount)
+            row.balance = round_decimal(prev_balance + available_total + commission_amount)
         else:
             row.balance = None
         
@@ -217,7 +217,7 @@ class AgentLedgerSheetService:
             record.commission_rate = input_data['commission_rate']
             
             if record.volume and record.commission_rate:
-                record.commission_amount = r(record.volume * record.commission_rate)
+                record.commission_amount = round_decimal(record.volume * record.commission_rate)
             else:
                 record.commission_amount = None
             
@@ -258,22 +258,22 @@ class AgentLedgerSheetService:
             rate_fpx = ledger.commission_rate_fpx if ledger else None
             rate_ewallet = ledger.commission_rate_ewallet if ledger else None
             
-            fpx_commission = r(kira_fpx * rate_fpx / 1000) if rate_fpx else None
-            ewallet_commission = r(kira_ewallet * rate_ewallet / 1000) if rate_ewallet else None
+            fpx_commission = round_decimal(kira_fpx * rate_fpx / 1000) if rate_fpx else None
+            ewallet_commission = round_decimal(kira_ewallet * rate_ewallet / 1000) if rate_ewallet else None
             
             gross = None
             if fpx_commission is not None or ewallet_commission is not None:
-                gross = r((fpx_commission or 0) + (ewallet_commission or 0))
+                gross = round_decimal((fpx_commission or 0) + (ewallet_commission or 0))
             
             available_fpx = 0
             if date in fpx_by_settlement and rate_fpx:
                 fpx_sum = sum(d.fpx_amount or 0 for d in fpx_by_settlement[date])
-                available_fpx = r(fpx_sum * rate_fpx / 1000) or 0
+                available_fpx = round_decimal(fpx_sum * rate_fpx / 1000) or 0
             
             available_ewallet = 0
             if date in ewallet_by_settlement and rate_ewallet:
                 ewallet_sum = sum(d.ewallet_amount or 0 for d in ewallet_by_settlement[date])
-                available_ewallet = r(ewallet_sum * rate_ewallet / 1000) or 0
+                available_ewallet = round_decimal(ewallet_sum * rate_ewallet / 1000) or 0
             
             result.append({
                 'id': ledger.id if ledger else '',
@@ -285,7 +285,7 @@ class AgentLedgerSheetService:
                 'gross_amount': gross,
                 'available_fpx': available_fpx,
                 'available_ewallet': available_ewallet,
-                'available_total': r(available_fpx + available_ewallet),
+                'available_total': round_decimal(available_fpx + available_ewallet),
                 'volume': ledger.volume if ledger else None,
                 'commission_rate': ledger.commission_rate if ledger else None,
                 'commission_amount': ledger.commission_amount if ledger else None,

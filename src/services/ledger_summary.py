@@ -249,8 +249,9 @@ class SummarySheetService:
         ])
         
         worksheet = client.spreadsheet.worksheet(SUMMARY_SHEET)
+        client.clear_row_backgrounds(SUMMARY_SHEET, DATA_START_ROW, 200, 1, 14)
         worksheet.batch_clear([DATA_RANGE])
-        
+
         if rows:
             client.write_data(SUMMARY_SHEET, rows, f'A{DATA_START_ROW}')
             

@@ -9,7 +9,7 @@ from src.core.models import Deposit, KiraTransaction
 from src.core.logger import get_logger
 from src.services.client import SheetsClient
 from src.services.parameters import ParameterService
-from src.utils.helpers import normalize_channel, r, to_float, calculate_fee
+from src.utils.helpers import categorize_channel, round_decimal, to_float, calculate_fee
 from src.utils.holiday import load_malaysia_holidays, calculate_settlement_date
 
 logger = get_logger(__name__)
@@ -69,7 +69,7 @@ def init_deposit():
                 
                 tx_map: Dict[tuple, Dict] = {}
                 for row in kira_agg:
-                    channel = normalize_channel(row.payment_method)
+                    channel = categorize_channel(row.payment_method)
                     key = (row.tx_date, channel)
                     if key not in tx_map:
                         tx_map[key] = {'amount': 0, 'settlement_amount': 0, 'volume': 0}
@@ -112,24 +112,24 @@ def init_deposit():
                     record_data = {
                         'merchant': merchant,
                         'transaction_date': date_str,
-                        'fpx_amount': r(fpx_data['amount']),
+                        'fpx_amount': round_decimal(fpx_data['amount']),
                         'fpx_volume': fpx_data['volume'],
                         'fpx_fee_type': fpx_fee_type,
                         'fpx_fee_rate': fpx_fee_rate,
                         'fpx_fee_amount': fpx_fee_amount,
-                        'fpx_gross': r(fpx_data['amount'] - (fpx_fee_amount or 0)),
+                        'fpx_gross': round_decimal(fpx_data['amount'] - (fpx_fee_amount or 0)),
                         'fpx_settlement_rule': fpx_rule,
                         'fpx_settlement_date': fpx_settlement_date,
-                        'ewallet_amount': r(ewallet_data['amount']),
+                        'ewallet_amount': round_decimal(ewallet_data['amount']),
                         'ewallet_volume': ewallet_data['volume'],
                         'ewallet_fee_type': ewallet_fee_type,
                         'ewallet_fee_rate': ewallet_fee_rate,
                         'ewallet_fee_amount': ewallet_fee_amount,
-                        'ewallet_gross': r(ewallet_data['amount'] - (ewallet_fee_amount or 0)),
+                        'ewallet_gross': round_decimal(ewallet_data['amount'] - (ewallet_fee_amount or 0)),
                         'ewallet_settlement_rule': ewallet_rule,
                         'ewallet_settlement_date': ewallet_settlement_date,
-                        'total_amount': r(fpx_data['amount'] + ewallet_data['amount']),
-                        'total_fees': r((fpx_fee_amount or 0) + (ewallet_fee_amount or 0)),
+                        'total_amount': round_decimal(fpx_data['amount'] + ewallet_data['amount']),
+                        'total_fees': round_decimal((fpx_fee_amount or 0) + (ewallet_fee_amount or 0)),
                         'available_fpx': 0,
                         'available_ewallet': 0,
                         'available_total': 0,
@@ -203,9 +203,9 @@ def _calculate_available_settlements(
                 ewallet_settlement[settlement_date] = ewallet_settlement.get(settlement_date, 0) + dep.ewallet_gross
     
     for deposit in deposits:
-        deposit.available_fpx = r(fpx_settlement.get(deposit.transaction_date, 0))
-        deposit.available_ewallet = r(ewallet_settlement.get(deposit.transaction_date, 0))
-        deposit.available_total = r((deposit.available_fpx or 0) + (deposit.available_ewallet or 0))
+        deposit.available_fpx = round_decimal(fpx_settlement.get(deposit.transaction_date, 0))
+        deposit.available_ewallet = round_decimal(ewallet_settlement.get(deposit.transaction_date, 0))
+        deposit.available_total = round_decimal((deposit.available_fpx or 0) + (deposit.available_ewallet or 0))
 
 
 class DepositSheetService:
@@ -365,15 +365,15 @@ class DepositSheetService:
                 record.fpx_fee_type, record.fpx_fee_rate,
                 record.fpx_amount or 0, record.fpx_volume or 0
             )
-            record.fpx_gross = r((record.fpx_amount or 0) - (record.fpx_fee_amount or 0))
+            record.fpx_gross = round_decimal((record.fpx_amount or 0) - (record.fpx_fee_amount or 0))
             
             record.ewallet_fee_amount = calculate_fee(
                 record.ewallet_fee_type, record.ewallet_fee_rate,
                 record.ewallet_amount or 0, record.ewallet_volume or 0
             )
-            record.ewallet_gross = r((record.ewallet_amount or 0) - (record.ewallet_fee_amount or 0))
+            record.ewallet_gross = round_decimal((record.ewallet_amount or 0) - (record.ewallet_fee_amount or 0))
             
-            record.total_fees = r((record.fpx_fee_amount or 0) + (record.ewallet_fee_amount or 0))
+            record.total_fees = round_decimal((record.fpx_fee_amount or 0) + (record.ewallet_fee_amount or 0))
             
             count += 1
         
@@ -414,8 +414,9 @@ class DepositSheetService:
             ])
         
         worksheet = client.spreadsheet.worksheet(DEPOSIT_SHEET)
+        client.clear_data_validation(DEPOSIT_SHEET, DATA_RANGE)
         worksheet.batch_clear([DATA_RANGE])
-        
+
         if rows:
             client.write_data(DEPOSIT_SHEET, rows, f'A{DATA_START_ROW}')
             

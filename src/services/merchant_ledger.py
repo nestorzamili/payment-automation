@@ -8,7 +8,7 @@ from src.core.database import get_session
 from src.core.models import MerchantLedger, Deposit
 from src.core.logger import get_logger
 from src.services.client import SheetsClient
-from src.utils.helpers import r, to_float
+from src.utils.helpers import round_decimal, to_float
 
 logger = get_logger(__name__)
 
@@ -71,7 +71,7 @@ def _recalculate_balances(session, merchant: str):
         )
         
         if has_payout_activity:
-            row.payout_pool_balance = r(
+            row.payout_pool_balance = round_decimal(
                 prev_topup_payout_pool
                 - (row.withdrawal_amount or 0)
                 - (row.withdrawal_charges or 0)
@@ -87,7 +87,7 @@ def _recalculate_balances(session, merchant: str):
         )
         
         if has_available_activity:
-            row.available_balance = r(
+            row.available_balance = round_decimal(
                 prev_available_balance
                 + available_total
                 - (row.settlement_fund or 0)
@@ -97,7 +97,7 @@ def _recalculate_balances(session, merchant: str):
             row.available_balance = None
         
         if row.payout_pool_balance is not None or row.available_balance is not None:
-            row.total_balance = r(
+            row.total_balance = round_decimal(
                 (row.payout_pool_balance or 0) + (row.available_balance or 0)
             )
         else:
@@ -255,7 +255,7 @@ class MerchantLedgerSheetService:
             record.withdrawal_rate = input_data['withdrawal_rate']
             
             if record.withdrawal_amount and record.withdrawal_rate:
-                record.withdrawal_charges = r(record.withdrawal_amount * record.withdrawal_rate / 100)
+                record.withdrawal_charges = round_decimal(record.withdrawal_amount * record.withdrawal_rate / 100)
             else:
                 record.withdrawal_charges = None
             
@@ -301,8 +301,8 @@ class MerchantLedgerSheetService:
             date = deposit.transaction_date
             ledger = ledger_map.get(date)
             
-            fpx_gross = r((deposit.fpx_amount or 0) - (deposit.fpx_fee_amount or 0))
-            ewallet_gross = r((deposit.ewallet_amount or 0) - (deposit.ewallet_fee_amount or 0))
+            fpx_gross = round_decimal((deposit.fpx_amount or 0) - (deposit.fpx_fee_amount or 0))
+            ewallet_gross = round_decimal((deposit.ewallet_amount or 0) - (deposit.ewallet_fee_amount or 0))
             
             result.append({
                 'id': ledger.id if ledger else '',
@@ -313,7 +313,7 @@ class MerchantLedgerSheetService:
                 'ewallet_amount': deposit.ewallet_amount,
                 'ewallet_fee': deposit.ewallet_fee_amount,
                 'ewallet_gross': ewallet_gross,
-                'total_gross': r((fpx_gross or 0) + (ewallet_gross or 0)),
+                'total_gross': round_decimal((fpx_gross or 0) + (ewallet_gross or 0)),
                 'total_fee': deposit.total_fees,
                 'available_fpx': deposit.available_fpx,
                 'available_ewallet': deposit.available_ewallet,
