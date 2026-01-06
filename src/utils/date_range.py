@@ -57,6 +57,7 @@ class DateRangeService:
     def _get_all_progress(self) -> Dict[str, date]:
         session = get_session()
         try:
+            session.expire_all()
             progress = {}
             for platform in PLATFORMS:
                 job = session.query(Job).filter(
@@ -69,6 +70,7 @@ class DateRangeService:
                     progress[platform] = datetime.strptime(job.to_date, '%Y-%m-%d').date()
                     logger.info(f"{platform}: Last completed {progress[platform]}")
             
+            logger.info(f"Progress dict: {progress}")
             return progress
         finally:
             session.close()
