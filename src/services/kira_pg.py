@@ -336,10 +336,10 @@ class KiraPGSheetService:
                 rec.settlement_date or '',
                 rec.fee_type or '',
                 rec.fee_rate or '',
-                rec.fees or '',
-                rec.settlement_amount or '',
-                rec.daily_variance or '',
-                rec.cumulative_variance or '',
+                rec.fees if rec.fees is not None else '',
+                rec.settlement_amount if rec.settlement_amount is not None else '',
+                rec.daily_variance if rec.daily_variance is not None else '',
+                rec.cumulative_variance if rec.cumulative_variance is not None else '',
                 rec.remarks or '',
             ])
         
