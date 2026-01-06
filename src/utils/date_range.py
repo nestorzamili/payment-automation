@@ -29,7 +29,13 @@ class DateRangeService:
             return {p: None for p in PLATFORMS}
         
         progress = self._get_all_progress()
-        max_progress = max(progress.values()) if progress else self.default_start_date
+        
+        if not progress:
+            target_date = self._calculate_target_date(self.default_start_date, today)
+            logger.info(f"No completed downloads, all platforms start from {self.default_start_date} to {target_date}")
+            return {p: (self.default_start_date.strftime('%Y-%m-%d'), target_date.strftime('%Y-%m-%d')) for p in PLATFORMS}
+        
+        max_progress = max(progress.values())
         all_synced = len(progress) == len(PLATFORMS) and all(d == max_progress for d in progress.values())
         
         if all_synced:
@@ -55,9 +61,19 @@ class DateRangeService:
         return ranges
     
     def _get_all_progress(self) -> Dict[str, date]:
+        from src.core.database import DATABASE_PATH
+        logger.info(f"Using database: {DATABASE_PATH}")
+        
         session = get_session()
         try:
             session.expire_all()
+            
+            all_jobs = session.query(Job).filter(
+                Job.job_type == 'download',
+                Job.status == 'completed'
+            ).all()
+            logger.info(f"All completed download jobs: {[(j.platform, j.to_date) for j in all_jobs]}")
+            
             progress = {}
             for platform in PLATFORMS:
                 job = session.query(Job).filter(
