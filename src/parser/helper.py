@@ -67,7 +67,7 @@ def get_parsed_date_ranges(account_label: str = None, platform: str = None) -> S
         session.close()
 
 
-def start_parse_job(from_date: str, to_date: str, account_label: str, platform: str, run_id: str = None) -> int:
+def create_pending_parse_job(from_date: str, to_date: str, account_label: str, platform: str, run_id: str = None) -> int:
     session = get_session()
     now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     
@@ -80,7 +80,7 @@ def start_parse_job(from_date: str, to_date: str, account_label: str, platform: 
             source_type='file',
             from_date=from_date,
             to_date=to_date,
-            status='running',
+            status='pending',
             created_at=now,
             updated_at=now
         )
@@ -88,8 +88,28 @@ def start_parse_job(from_date: str, to_date: str, account_label: str, platform: 
         session.commit()
         session.refresh(job)
         
-        logger.debug(f"Started parse job: {platform}/{account_label} ({from_date} to {to_date})")
+        logger.debug(f"Created pending parse job: {platform}/{account_label} ({from_date} to {to_date})")
         return job.job_id
+    except Exception as e:
+        session.rollback()
+        logger.error(f"Failed to create parse job: {e}")
+        raise
+    finally:
+        session.close()
+
+
+def start_running_parse_job(job_id: int, run_id: str = None):
+    session = get_session()
+    now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    
+    try:
+        job = session.query(Job).filter_by(job_id=job_id).first()
+        if job:
+            job.status = 'running'
+            job.updated_at = now
+            session.commit()
+            logger.debug(f"Started parse job: {job_id}")
+            _update_jobs_sheet(run_id or job.run_id)
     except Exception as e:
         session.rollback()
         logger.error(f"Failed to start parse job: {e}")
@@ -145,6 +165,7 @@ def fail_parse_job(job_id: int, error: str):
             job.updated_at = now
             session.commit()
             logger.debug(f"Failed parse job: {job_id}")
+            _update_jobs_sheet(job.run_id)
     except Exception as e:
         session.rollback()
         logger.error(f"Failed to update parse job as failed: {e}")

@@ -8,7 +8,7 @@ from sqlalchemy.dialects.sqlite import insert
 from src.core.database import get_session
 from src.core.models import KiraTransaction
 from src.core.logger import get_logger
-from src.parser.helper import get_parsed_date_ranges, extract_date_range_from_filename, start_parse_job, complete_parse_job, fail_parse_job
+from src.parser.helper import get_parsed_date_ranges, extract_date_range_from_filename, create_pending_parse_job, start_running_parse_job, complete_parse_job, fail_parse_job, _update_jobs_sheet
 
 logger = get_logger(__name__)
 
@@ -131,8 +131,16 @@ class KiraParser:
             'total_transactions': 0
         }
         
+        pending_jobs = []
         for file_path, from_date, to_date in new_files:
-            job_id = start_parse_job(from_date, to_date, 'kira', 'kira', run_id)
+            job_id = create_pending_parse_job(from_date, to_date, 'kira', 'kira', run_id)
+            pending_jobs.append((job_id, file_path, from_date, to_date))
+        
+        if pending_jobs:
+            _update_jobs_sheet(run_id)
+        
+        for job_id, file_path, from_date, to_date in pending_jobs:
+            start_running_parse_job(job_id, run_id)
             
             try:
                 logger.info(f"Processing: {file_path.name}")
