@@ -168,5 +168,37 @@ class SheetsClient:
             self.spreadsheet.batch_update({"requests": [request]})
         except Exception as e:
             logger.error(f"Failed to set dropdown range in {sheet_name}!{col}: {e}")
+    
+    def set_row_background(self, sheet_name: str, row: int, start_col: int, end_col: int, 
+                           red: float = 0.9, green: float = 0.9, blue: float = 0.9):
+        try:
+            worksheet = self.spreadsheet.worksheet(sheet_name)
+            sheet_id = worksheet.id
+            
+            request = {
+                "repeatCell": {
+                    "range": {
+                        "sheetId": sheet_id,
+                        "startRowIndex": row - 1,
+                        "endRowIndex": row,
+                        "startColumnIndex": start_col - 1,
+                        "endColumnIndex": end_col
+                    },
+                    "cell": {
+                        "userEnteredFormat": {
+                            "backgroundColor": {
+                                "red": red,
+                                "green": green,
+                                "blue": blue
+                            }
+                        }
+                    },
+                    "fields": "userEnteredFormat.backgroundColor"
+                }
+            }
+            
+            self.spreadsheet.batch_update({"requests": [request]})
+        except Exception as e:
+            logger.error(f"Failed to set row background in {sheet_name}: {e}")
 
 

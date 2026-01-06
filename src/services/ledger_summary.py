@@ -253,5 +253,8 @@ class SummarySheetService:
         
         if rows:
             client.write_data(SUMMARY_SHEET, rows, f'A{DATA_START_ROW}')
+            
+            total_row = DATA_START_ROW + len(rows) - 1
+            client.set_row_background(SUMMARY_SHEET, total_row, 1, 14)
         
         logger.info(f"Wrote {len(rows)} rows to Summary sheet")
