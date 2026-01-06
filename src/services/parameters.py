@@ -123,27 +123,25 @@ class ParameterService:
         finally:
             session.close()
     
-    def get_all_parameters(self) -> Dict[str, Any]:
+    @classmethod
+    def get_all_parameters(cls) -> Dict[str, Any]:
         session = get_session()
-        
+
         try:
             params = session.query(Parameter).all()
-            
+
             add_on_holidays = []
-            
+
             for p in params:
                 if p.type == 'ADD_ON_HOLIDAYS':
                     add_on_holidays.append({
                         'date': p.key,
                         'description': p.description
                     })
-            
+
             return {
                 'add_on_holidays': add_on_holidays
             }
-            
+
         finally:
             session.close()
-    
-    def get_add_on_holidays(self) -> Set[str]:
-        return self.load_parameters()
