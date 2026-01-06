@@ -220,17 +220,20 @@ class DepositSheetService:
     @classmethod
     def sync_sheet(cls) -> int:
         client = cls.get_client()
-        
-        merchant_value = client.read_data(DEPOSIT_SHEET, 'B1')
-        if not merchant_value or not merchant_value[0]:
+
+        header_data = client.read_data(DEPOSIT_SHEET, 'B1:B2')
+        if not header_data or len(header_data) < 2:
+            raise ValueError("Merchant or Period not selected")
+
+        merchant = header_data[0][0] if header_data[0] else None
+        period_str = header_data[1][0] if header_data[1] else None
+
+        if not merchant:
             raise ValueError("Merchant not selected")
-        merchant = merchant_value[0][0]
-        
-        period_value = client.read_data(DEPOSIT_SHEET, 'B2')
-        if not period_value or not period_value[0]:
+        if not period_str:
             raise ValueError("Period not selected")
-        
-        year, month = cls._parse_period(period_value[0][0])
+
+        year, month = cls._parse_period(period_str)
         if not year or not month:
             raise ValueError("Invalid period format")
         

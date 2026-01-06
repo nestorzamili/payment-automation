@@ -53,56 +53,81 @@ def init_agent_ledger(merchant: str, year: int, month: int):
         session.close()
 
 
-def _aggregate_by_settlement(deposits):
+def _aggregate_by_settlement(deposits, date_prefix: str):
     fpx_by_settlement = {}
     ewallet_by_settlement = {}
-    
+
     for dep in deposits:
         if dep.fpx_settlement_date and dep.fpx_amount:
-            if dep.fpx_settlement_date not in fpx_by_settlement:
-                fpx_by_settlement[dep.fpx_settlement_date] = []
-            fpx_by_settlement[dep.fpx_settlement_date].append(dep)
+            if dep.fpx_settlement_date.startswith(date_prefix):
+                if dep.fpx_settlement_date not in fpx_by_settlement:
+                    fpx_by_settlement[dep.fpx_settlement_date] = 0
+                fpx_by_settlement[dep.fpx_settlement_date] += dep.fpx_amount or 0
+
         if dep.ewallet_settlement_date and dep.ewallet_amount:
-            if dep.ewallet_settlement_date not in ewallet_by_settlement:
-                ewallet_by_settlement[dep.ewallet_settlement_date] = []
-            ewallet_by_settlement[dep.ewallet_settlement_date].append(dep)
-    
+            if dep.ewallet_settlement_date.startswith(date_prefix):
+                if dep.ewallet_settlement_date not in ewallet_by_settlement:
+                    ewallet_by_settlement[dep.ewallet_settlement_date] = 0
+                ewallet_by_settlement[dep.ewallet_settlement_date] += dep.ewallet_amount or 0
+
     return fpx_by_settlement, ewallet_by_settlement
 
 
-def _recalculate_balances(session, merchant: str, fpx_by_settlement: dict, ewallet_by_settlement: dict):
+def _get_previous_month_balance(session, merchant: str, year: int, month: int) -> float:
+    prev_month = month - 1
+    prev_year = year
+    if prev_month == 0:
+        prev_month = 12
+        prev_year = year - 1
+
+    prev_date_prefix = f"{prev_year}-{prev_month:02d}"
+
+    last_record = session.query(AgentLedger).filter(
+        and_(
+            AgentLedger.merchant == merchant,
+            AgentLedger.transaction_date.like(f"{prev_date_prefix}%")
+        )
+    ).order_by(AgentLedger.transaction_date.desc()).first()
+
+    return last_record.balance or 0 if last_record else 0
+
+
+def _recalculate_balances(session, merchant: str, year: int, month: int,
+                          fpx_by_settlement: dict, ewallet_by_settlement: dict):
+    date_prefix = f"{year}-{month:02d}"
+
+    prev_balance = _get_previous_month_balance(session, merchant, year, month)
+
     rows = session.query(AgentLedger).filter(
-        AgentLedger.merchant == merchant
+        and_(
+            AgentLedger.merchant == merchant,
+            AgentLedger.transaction_date.like(f"{date_prefix}%")
+        )
     ).order_by(AgentLedger.transaction_date).all()
-    
-    prev_balance = 0
-    
+
     for row in rows:
         date = row.transaction_date
         rate_fpx = row.commission_rate_fpx or 0
         rate_ewallet = row.commission_rate_ewallet or 0
-        
+
         avail_fpx = 0
         if date in fpx_by_settlement and rate_fpx:
-            fpx_sum = sum(d.fpx_amount or 0 for d in fpx_by_settlement[date])
-            avail_fpx = round_decimal(fpx_sum * rate_fpx / 1000) or 0
-        
+            avail_fpx = round_decimal(fpx_by_settlement[date] * rate_fpx / 1000) or 0
+
         avail_ewallet = 0
         if date in ewallet_by_settlement and rate_ewallet:
-            ewallet_sum = sum(d.ewallet_amount or 0 for d in ewallet_by_settlement[date])
-            avail_ewallet = round_decimal(ewallet_sum * rate_ewallet / 1000) or 0
-        
+            avail_ewallet = round_decimal(ewallet_by_settlement[date] * rate_ewallet / 1000) or 0
+
         available_total = avail_fpx + avail_ewallet
         commission_amount = row.commission_amount or 0
-        
+
         has_activity = available_total > 0 or commission_amount > 0 or prev_balance != 0
-        
+
         if has_activity:
             row.balance = round_decimal(prev_balance + available_total + commission_amount)
+            prev_balance = row.balance
         else:
             row.balance = None
-        
-        prev_balance = row.balance if row.balance is not None else prev_balance
 
 
 class AgentLedgerSheetService:
@@ -117,32 +142,45 @@ class AgentLedgerSheetService:
     @classmethod
     def sync_sheet(cls) -> int:
         client = cls.get_client()
-        
-        merchant_value = client.read_data(AGENT_LEDGER_SHEET, 'B1')
-        if not merchant_value or not merchant_value[0]:
+
+        header_data = client.read_data(AGENT_LEDGER_SHEET, 'B1:B2')
+        if not header_data or len(header_data) < 2:
+            raise ValueError("Merchant or Period not selected")
+
+        merchant = header_data[0][0] if header_data[0] else None
+        period_str = header_data[1][0] if header_data[1] else None
+
+        if not merchant:
             raise ValueError("Merchant not selected")
-        merchant = merchant_value[0][0]
-        
-        period_value = client.read_data(AGENT_LEDGER_SHEET, 'B2')
-        if not period_value or not period_value[0]:
+        if not period_str:
             raise ValueError("Period not selected")
-        
-        year, month = cls._parse_period(period_value[0][0])
+
+        year, month = cls._parse_period(period_str)
         if not year or not month:
             raise ValueError("Invalid period format")
-        
+
         session = get_session()
-        
+
         try:
             manual_inputs = cls._read_manual_inputs()
             cls._apply_manual_inputs(session, manual_inputs)
-            
-            deposits = session.query(Deposit).filter(Deposit.merchant == merchant).all()
-            fpx_by_settlement, ewallet_by_settlement = _aggregate_by_settlement(deposits)
-            
-            _recalculate_balances(session, merchant, fpx_by_settlement, ewallet_by_settlement)
+
+            date_prefix = f"{year}-{month:02d}"
+            deposits = session.query(Deposit).filter(
+                and_(
+                    Deposit.merchant == merchant,
+                    Deposit.transaction_date.like(f"{date_prefix}%")
+                )
+            ).all()
+
+            prev_deposits = cls._get_prev_month_deposits(session, merchant, year, month)
+            all_deposits = list(prev_deposits) + list(deposits)
+
+            fpx_by_settlement, ewallet_by_settlement = _aggregate_by_settlement(all_deposits, date_prefix)
+
+            _recalculate_balances(session, merchant, year, month, fpx_by_settlement, ewallet_by_settlement)
             session.commit()
-            
+
             data = cls._get_ledger_data(session, merchant, year, month, fpx_by_settlement, ewallet_by_settlement)
             cls._write_to_sheet(data)
             
@@ -167,8 +205,25 @@ class AgentLedgerSheetService:
         month_name = match.group(1)
         year = int(match.group(2))
         month = MONTHS.get(month_name)
-        
+
         return year, month
+
+    @classmethod
+    def _get_prev_month_deposits(cls, session, merchant: str, year: int, month: int):
+        prev_month = month - 1
+        prev_year = year
+        if prev_month == 0:
+            prev_month = 12
+            prev_year = year - 1
+
+        prev_date_prefix = f"{prev_year}-{prev_month:02d}"
+
+        return session.query(Deposit).filter(
+            and_(
+                Deposit.merchant == merchant,
+                Deposit.transaction_date.like(f"{prev_date_prefix}%")
+            )
+        ).all()
     
     @classmethod
     def _read_manual_inputs(cls) -> List[Dict[str, Any]]:
@@ -267,13 +322,11 @@ class AgentLedgerSheetService:
             
             available_fpx = 0
             if date in fpx_by_settlement and rate_fpx:
-                fpx_sum = sum(d.fpx_amount or 0 for d in fpx_by_settlement[date])
-                available_fpx = round_decimal(fpx_sum * rate_fpx / 1000) or 0
-            
+                available_fpx = round_decimal(fpx_by_settlement[date] * rate_fpx / 1000) or 0
+
             available_ewallet = 0
             if date in ewallet_by_settlement and rate_ewallet:
-                ewallet_sum = sum(d.ewallet_amount or 0 for d in ewallet_by_settlement[date])
-                available_ewallet = round_decimal(ewallet_sum * rate_ewallet / 1000) or 0
+                available_ewallet = round_decimal(ewallet_by_settlement[date] * rate_ewallet / 1000) or 0
             
             result.append({
                 'id': ledger.id if ledger else '',

@@ -53,58 +53,85 @@ def init_merchant_ledger(merchant: str, year: int, month: int):
         session.close()
 
 
-def _recalculate_balances(session, merchant: str):
+def _get_previous_month_balance(session, merchant: str, year: int, month: int) -> tuple:
+    prev_month = month - 1
+    prev_year = year
+    if prev_month == 0:
+        prev_month = 12
+        prev_year = year - 1
+
+    prev_date_prefix = f"{prev_year}-{prev_month:02d}"
+
+    last_record = session.query(MerchantLedger).filter(
+        and_(
+            MerchantLedger.merchant == merchant,
+            MerchantLedger.transaction_date.like(f"{prev_date_prefix}%")
+        )
+    ).order_by(MerchantLedger.transaction_date.desc()).first()
+
+    if last_record:
+        return (
+            last_record.payout_pool_balance or 0,
+            last_record.available_balance or 0
+        )
+    return (0, 0)
+
+
+def _recalculate_balances(session, merchant: str, year: int, month: int):
+    date_prefix = f"{year}-{month:02d}"
+
+    prev_payout, prev_available = _get_previous_month_balance(session, merchant, year, month)
+
     rows = session.query(MerchantLedger).filter(
-        MerchantLedger.merchant == merchant
+        and_(
+            MerchantLedger.merchant == merchant,
+            MerchantLedger.transaction_date.like(f"{date_prefix}%")
+        )
     ).order_by(MerchantLedger.transaction_date).all()
-    
-    prev_topup_payout_pool = 0
-    prev_available_balance = 0
-    
+
     for row in rows:
         available_total = row.available_total or 0
-        
+
         has_payout_activity = (
-            row.withdrawal_amount is not None 
+            row.withdrawal_amount is not None
             or row.topup_payout_pool is not None
-            or prev_topup_payout_pool != 0
+            or prev_payout != 0
         )
-        
+
         if has_payout_activity:
             row.payout_pool_balance = round_decimal(
-                prev_topup_payout_pool
+                prev_payout
                 - (row.withdrawal_amount or 0)
                 - (row.withdrawal_charges or 0)
                 + (row.topup_payout_pool or 0)
             )
+            prev_payout = row.payout_pool_balance
         else:
             row.payout_pool_balance = None
-        
+
         has_available_activity = (
             row.settlement_fund is not None
             or available_total > 0
-            or prev_available_balance != 0
+            or prev_available != 0
         )
-        
+
         if has_available_activity:
             row.available_balance = round_decimal(
-                prev_available_balance
+                prev_available
                 + available_total
                 - (row.settlement_fund or 0)
                 - (row.settlement_charges or 0)
             )
+            prev_available = row.available_balance
         else:
             row.available_balance = None
-        
+
         if row.payout_pool_balance is not None or row.available_balance is not None:
             row.total_balance = round_decimal(
                 (row.payout_pool_balance or 0) + (row.available_balance or 0)
             )
         else:
             row.total_balance = None
-        
-        prev_topup_payout_pool = row.payout_pool_balance if row.payout_pool_balance is not None else prev_topup_payout_pool
-        prev_available_balance = row.available_balance if row.available_balance is not None else prev_available_balance
 
 
 def list_merchants() -> List[str]:
@@ -154,17 +181,20 @@ class MerchantLedgerSheetService:
     @classmethod
     def sync_sheet(cls) -> int:
         client = cls.get_client()
-        
-        merchant_value = client.read_data(MERCHANT_LEDGER_SHEET, 'B1')
-        if not merchant_value or not merchant_value[0]:
+
+        header_data = client.read_data(MERCHANT_LEDGER_SHEET, 'B1:B2')
+        if not header_data or len(header_data) < 2:
+            raise ValueError("Merchant or Period not selected")
+
+        merchant = header_data[0][0] if header_data[0] else None
+        period_str = header_data[1][0] if header_data[1] else None
+
+        if not merchant:
             raise ValueError("Merchant not selected")
-        merchant = merchant_value[0][0]
-        
-        period_value = client.read_data(MERCHANT_LEDGER_SHEET, 'B2')
-        if not period_value or not period_value[0]:
+        if not period_str:
             raise ValueError("Period not selected")
-        
-        year, month = cls._parse_period(period_value[0][0])
+
+        year, month = cls._parse_period(period_str)
         if not year or not month:
             raise ValueError("Invalid period format")
         
@@ -174,7 +204,7 @@ class MerchantLedgerSheetService:
             manual_inputs = cls._read_manual_inputs()
             cls._apply_manual_inputs(session, manual_inputs)
             
-            _recalculate_balances(session, merchant)
+            _recalculate_balances(session, merchant, year, month)
             session.commit()
             
             data = cls._get_ledger_data(session, merchant, year, month)

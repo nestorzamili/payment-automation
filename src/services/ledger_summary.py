@@ -37,16 +37,20 @@ class SummarySheetService:
     @classmethod
     def sync_sheet(cls) -> int:
         client = cls.get_client()
-        
-        year_value = client.read_data(SUMMARY_SHEET, 'B1')
-        if not year_value or not year_value[0]:
+
+        header_data = client.read_data(SUMMARY_SHEET, 'B1:B2')
+        if not header_data or len(header_data) < 2:
+            raise ValueError("Year or View Type not selected")
+
+        year_str = header_data[0][0] if header_data[0] else None
+        view_type_raw = header_data[1][0] if header_data[1] else None
+
+        if not year_str:
             raise ValueError("Year not selected")
-        year = int(year_value[0][0])
-        
-        view_type_value = client.read_data(SUMMARY_SHEET, 'B2')
-        if not view_type_value or not view_type_value[0]:
+        if not view_type_raw:
             raise ValueError("View Type not selected")
-        view_type_raw = view_type_value[0][0]
+
+        year = int(year_str)
         view_type = VIEW_TYPE_MAP.get(view_type_raw, view_type_raw.lower())
         
         session = get_session()
