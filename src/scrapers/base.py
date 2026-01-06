@@ -41,7 +41,7 @@ class BaseScraper(ABC):
     def target_url(self) -> str:
         return self.base_url + self.TARGET_PATH
     
-    async def download_data(self, browser_manager: BrowserManager, from_date: str, to_date: str) -> List[Path]:
+    async def download_data(self, browser_manager: BrowserManager, from_date: str, to_date: str, job_id: int = None) -> List[Path]:
         logger.info(f"Starting download: {self.label} ({from_date} to {to_date})")
         
         if self.need_captcha:
@@ -69,7 +69,7 @@ class BaseScraper(ABC):
                     except Exception:
                         pass
             
-            return await self._login_with_visible_browser(browser_manager, from_date, to_date)
+            return await self._login_with_visible_browser(browser_manager, from_date, to_date, job_id)
         
         has_session = self.session_manager.session_exists(self.session_path)
         
@@ -125,12 +125,40 @@ class BaseScraper(ABC):
         
         is_logged_in = await self.check_if_logged_in(page)
         return not is_logged_in
+
+    def _update_job_waiting_manual(self, job_id: int):
+        if not job_id:
+            return
+        try:
+            from src.core.jobs import job_manager
+            from src.services.job_sheet import JobSheetService
+            job_manager.update_job(job_id, 'waiting_manual_login', error_message='Waiting for manual captcha input')
+            job = job_manager.get_job(job_id)
+            if job:
+                JobSheetService.update_job_by_id(job)
+        except Exception:
+            pass
+
+    def _update_job_running(self, job_id: int):
+        if not job_id:
+            return
+        try:
+            from src.core.jobs import job_manager
+            from src.services.job_sheet import JobSheetService
+            job_manager.update_job(job_id, 'running', error_message='')
+            job = job_manager.get_job(job_id)
+            if job:
+                JobSheetService.update_job_by_id(job)
+        except Exception:
+            pass
     
-    async def _login_with_visible_browser(self, browser_manager: BrowserManager, from_date: str, to_date: str) -> List[Path]:
+    async def _login_with_visible_browser(self, browser_manager: BrowserManager, from_date: str, to_date: str, job_id: int = None) -> List[Path]:
         logger.info(f"Visible browser for manual login: {self.label}")
         
-        await browser_manager.close()
+        self._update_job_waiting_manual(job_id)
         
+        await browser_manager.close()
+
         async with BrowserManager(headless_override=False) as visible_browser:
             context = await visible_browser.create_context(session_path=None)
             page = await create_page_with_kl_settings(context)
@@ -138,8 +166,9 @@ class BaseScraper(ABC):
             await page.goto(self.login_url, wait_until='networkidle')
             await self.perform_login(page)
             await visible_browser.save_session(context, self.session_path)
-            
-        
+
+        self._update_job_running(job_id)
+
         await browser_manager.initialize()
         
         context = await browser_manager.create_context(session_path=self.session_path)

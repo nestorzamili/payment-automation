@@ -9,7 +9,7 @@ from sqlalchemy.dialects.sqlite import insert
 from src.core.database import get_session
 from src.core.models import PGTransaction
 from src.core.logger import get_logger
-from src.parser.helper import get_parsed_date_ranges, extract_date_range_from_filename, create_pending_parse_job, start_running_parse_job, complete_parse_job, fail_parse_job, normalize_channel, _update_jobs_sheet
+from src.parser.helper import get_parsed_date_ranges, extract_date_range_from_filename, create_pending_parse_job, start_running_parse_job, complete_parse_job, fail_parse_job, normalize_channel, _append_job_to_sheet
 
 logger = get_logger(__name__)
 
@@ -169,9 +169,7 @@ class M1Parser:
         for file_path, from_date, to_date in new_files:
             job_id = create_pending_parse_job(from_date, to_date, account_label, 'm1', run_id)
             pending_jobs.append((job_id, file_path, from_date, to_date))
-        
-        if pending_jobs:
-            _update_jobs_sheet(run_id)
+            _append_job_to_sheet(job_id)
         
         for job_id, file_path, from_date, to_date in pending_jobs:
             start_running_parse_job(job_id, run_id)

@@ -126,13 +126,10 @@ def _run_full_sync(run_id: str):
                 jobs = _create_download_jobs(run_id, platform_accounts, from_date, to_date, platform)
                 all_jobs.extend(jobs)
         
-        _update_sheet(run_id)
-        
         if all_jobs:
-            _run_download_jobs(all_jobs, run_id)
-        
+            _run_download_jobs(all_jobs)
+
         run_parse_job(run_id)
-        _update_sheet(run_id)
         logger.info(f"Full sync completed: {run_id}")
         
     except Exception as e:
@@ -162,10 +159,8 @@ def _run_platform_sync(run_id: str, platform: str):
         
         from_date, to_date = date_range
         jobs = _create_download_jobs(run_id, target_accounts, from_date, to_date, platform)
-        _update_sheet(run_id)
-        
         if jobs:
-            _run_download_jobs(jobs, run_id)
+            _run_download_jobs(jobs)
         
         logger.info(f"Platform sync completed: {platform} ({run_id})")
         
@@ -181,7 +176,6 @@ def _run_parse_only(run_id: str):
     
     try:
         run_parse_job(run_id)
-        _update_sheet(run_id)
         logger.info(f"Parse only completed: {run_id}")
         
     except Exception as e:
@@ -204,20 +198,21 @@ def _create_download_jobs(run_id: str, accounts: list, from_date: str, to_date: 
             from_date=from_date,
             to_date=to_date
         )
+        _append_job_to_sheet(job_id)
         jobs.append((job_id, account, from_date, to_date))
     return jobs
 
 
-def _run_download_jobs(jobs: List[Tuple[int, dict, str, str]], run_id: str):
+def _run_download_jobs(jobs: List[Tuple[int, dict, str, str]]):
     import asyncio
-    
+
     async def run():
         api_jobs = [job for job in jobs if job[1]['platform'] == 'fiuu']
         browser_jobs = [job for job in jobs if job[1]['platform'] != 'fiuu']
-        
+
         for job_id, account, from_date, to_date in api_jobs:
             job_manager.update_job(job_id, 'running')
-            _update_sheet(run_id)
+            _update_job_sheet(job_id)
             try:
                 from src.services.fiuu import FiuuAPIClient
                 client = FiuuAPIClient(account)
@@ -228,28 +223,35 @@ def _run_download_jobs(jobs: List[Tuple[int, dict, str, str]], run_id: str):
                 error_msg = clean_error_msg(e)
                 logger.error(f"Download failed: {account['label']} - {error_msg}")
                 job_manager.update_job(job_id, 'failed', error_message=error_msg)
-            _update_sheet(run_id)
-        
+            _update_job_sheet(job_id)
+
         if browser_jobs:
             async with BrowserManager() as browser_manager:
                 for job_id, account, from_date, to_date in browser_jobs:
                     job_manager.update_job(job_id, 'running')
-                    _update_sheet(run_id)
+                    _update_job_sheet(job_id)
                     try:
                         scraper_class = get_scraper_class(account['platform'])
                         scraper = scraper_class(account)
-                        files = await scraper.download_data(browser_manager, from_date, to_date)
+                        files = await scraper.download_data(browser_manager, from_date, to_date, job_id)
                         job_manager.update_job(job_id, 'completed', fetched_count=len(files), stored_count=len(files))
                     except Exception as e:
                         from src.core.logger import clean_error_msg
                         error_msg = clean_error_msg(e)
                         logger.error(f"Download failed: {account['label']} - {error_msg}")
                         job_manager.update_job(job_id, 'failed', error_message=error_msg)
-                    _update_sheet(run_id)
-    
+                    _update_job_sheet(job_id)
+
     asyncio.run(run())
 
 
-def _update_sheet(run_id: str):
-    jobs = job_manager.list_jobs(run_id=run_id)
-    JobSheetService.update_jobs_sheet(jobs)
+def _update_job_sheet(job_id: int):
+    job = job_manager.get_job(job_id)
+    if job:
+        JobSheetService.update_job_by_id(job)
+
+
+def _append_job_to_sheet(job_id: int):
+    job = job_manager.get_job(job_id)
+    if job:
+        JobSheetService.append_job(job)

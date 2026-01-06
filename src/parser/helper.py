@@ -109,7 +109,7 @@ def start_running_parse_job(job_id: int, run_id: str = None):
             job.updated_at = now
             session.commit()
             logger.debug(f"Started parse job: {job_id}")
-            _update_jobs_sheet(run_id or job.run_id)
+            _update_job_sheet(job_id)
     except Exception as e:
         session.rollback()
         logger.error(f"Failed to start parse job: {e}")
@@ -132,7 +132,7 @@ def complete_parse_job(job_id: int, fetched_count: int, stored_count: int):
             session.commit()
             logger.debug(f"Completed parse job: {job_id} ({stored_count} stored)")
             
-            _update_jobs_sheet(job.run_id)
+            _update_job_sheet(job_id)
     except Exception as e:
         session.rollback()
         logger.error(f"Failed to complete parse job: {e}")
@@ -141,16 +141,30 @@ def complete_parse_job(job_id: int, fetched_count: int, stored_count: int):
         session.close()
 
 
-def _update_jobs_sheet(run_id: str):
-    if not run_id:
+def _update_job_sheet(job_id: int):
+    if not job_id:
         return
     try:
         from src.core.jobs import job_manager
         from src.services.job_sheet import JobSheetService
-        jobs = job_manager.list_jobs(run_id=run_id)
-        JobSheetService.update_jobs_sheet(jobs)
+        job = job_manager.get_job(job_id)
+        if job:
+            JobSheetService.update_job_by_id(job)
     except Exception as e:
-        logger.debug(f"Failed to update jobs sheet: {e}")
+        logger.debug(f"Failed to update job sheet: {e}")
+
+
+def _append_job_to_sheet(job_id: int):
+    if not job_id:
+        return
+    try:
+        from src.core.jobs import job_manager
+        from src.services.job_sheet import JobSheetService
+        job = job_manager.get_job(job_id)
+        if job:
+            JobSheetService.append_job(job)
+    except Exception as e:
+        logger.debug(f"Failed to append job to sheet: {e}")
 
 
 def fail_parse_job(job_id: int, error: str):
@@ -165,7 +179,7 @@ def fail_parse_job(job_id: int, error: str):
             job.updated_at = now
             session.commit()
             logger.debug(f"Failed parse job: {job_id}")
-            _update_jobs_sheet(job.run_id)
+            _update_job_sheet(job_id)
     except Exception as e:
         session.rollback()
         logger.error(f"Failed to update parse job as failed: {e}")
