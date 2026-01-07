@@ -410,9 +410,9 @@ class DepositSheetService:
                 rec.ewallet_settlement_date or '',
                 rec.total_amount if rec.total_amount is not None else 0,
                 rec.total_fees if rec.total_fees is not None else 0,
-                rec.available_fpx or '',
-                rec.available_ewallet or '',
-                rec.available_total or '',
+                rec.available_fpx if rec.available_fpx is not None else 0,
+                rec.available_ewallet if rec.available_ewallet is not None else 0,
+                rec.available_total if rec.available_total is not None else 0,
                 rec.remarks or '',
             ])
         
