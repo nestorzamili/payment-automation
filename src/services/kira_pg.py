@@ -198,11 +198,13 @@ class KiraPGSheetService:
         session = get_session()
         
         try:
-            add_on_holidays = ParameterService.load_parameters()
+            params = ParameterService.load_parameters()
+            add_on_holidays = params['add_on_holidays']
+            exclude_holidays = params['exclude_holidays']
             public_holidays = load_malaysia_holidays()
             
             manual_inputs = cls._read_manual_inputs()
-            cls._apply_manual_inputs(session, manual_inputs, public_holidays, add_on_holidays)
+            cls._apply_manual_inputs(session, manual_inputs, public_holidays, add_on_holidays, exclude_holidays)
             
             session.commit()
             
@@ -269,7 +271,7 @@ class KiraPGSheetService:
     
     @classmethod
     def _apply_manual_inputs(cls, session, manual_inputs: List[Dict],
-                             public_holidays, add_on_holidays) -> int:
+                             public_holidays, add_on_holidays, exclude_holidays=None) -> int:
         if not manual_inputs:
             return 0
         
@@ -289,7 +291,7 @@ class KiraPGSheetService:
                 record.settlement_rule = input_data['settlement_rule'].upper()
                 record.settlement_date = calculate_settlement_date(
                     record.transaction_date, record.settlement_rule,
-                    public_holidays, add_on_holidays
+                    public_holidays, add_on_holidays, exclude_holidays
                 )
             else:
                 record.settlement_rule = None

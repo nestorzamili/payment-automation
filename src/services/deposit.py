@@ -28,7 +28,9 @@ def init_deposit():
     session = get_session()
     
     try:
-        add_on_holidays = ParameterService.load_parameters()
+        params = ParameterService.load_parameters()
+        add_on_holidays = params['add_on_holidays']
+        exclude_holidays = params['exclude_holidays']
         public_holidays = load_malaysia_holidays()
         
         merchants = session.query(KiraTransaction.merchant).distinct().all()
@@ -95,11 +97,11 @@ def init_deposit():
                     ewallet_rule = existing_record.ewallet_settlement_rule if existing_record else None
                     
                     fpx_settlement_date = calculate_settlement_date(
-                        date_str, fpx_rule, public_holidays, add_on_holidays
+                        date_str, fpx_rule, public_holidays, add_on_holidays, exclude_holidays
                     ) if fpx_rule else None
                     
                     ewallet_settlement_date = calculate_settlement_date(
-                        date_str, ewallet_rule, public_holidays, add_on_holidays
+                        date_str, ewallet_rule, public_holidays, add_on_holidays, exclude_holidays
                     ) if ewallet_rule else None
                     
                     fpx_fee_amount = calculate_fee(
@@ -145,7 +147,7 @@ def init_deposit():
                     count += 1
                 
                 _calculate_available_settlements(
-                    session, merchant, year, month, public_holidays, add_on_holidays
+                    session, merchant, year, month, public_holidays, add_on_holidays, exclude_holidays
                 )
         
         session.commit()
@@ -161,7 +163,7 @@ def init_deposit():
 
 def _calculate_available_settlements(
     session, merchant: str, year: int, month: int,
-    public_holidays: Set[str], add_on_holidays: Set[str]
+    public_holidays: Set[str], add_on_holidays: Set[str], exclude_holidays: Set[str] = None
 ):
     date_prefix = f"{year}-{month:02d}"
     
@@ -190,14 +192,14 @@ def _calculate_available_settlements(
     for dep in all_deposits:
         if dep.fpx_settlement_rule and dep.fpx_gross:
             settlement_date = calculate_settlement_date(
-                dep.transaction_date, dep.fpx_settlement_rule, public_holidays, add_on_holidays
+                dep.transaction_date, dep.fpx_settlement_rule, public_holidays, add_on_holidays, exclude_holidays
             )
             if settlement_date and settlement_date.startswith(date_prefix):
                 fpx_settlement[settlement_date] = fpx_settlement.get(settlement_date, 0) + dep.fpx_gross
         
         if dep.ewallet_settlement_rule and dep.ewallet_gross:
             settlement_date = calculate_settlement_date(
-                dep.transaction_date, dep.ewallet_settlement_rule, public_holidays, add_on_holidays
+                dep.transaction_date, dep.ewallet_settlement_rule, public_holidays, add_on_holidays, exclude_holidays
             )
             if settlement_date and settlement_date.startswith(date_prefix):
                 ewallet_settlement[settlement_date] = ewallet_settlement.get(settlement_date, 0) + dep.ewallet_gross
@@ -240,14 +242,16 @@ class DepositSheetService:
         session = get_session()
         
         try:
-            add_on_holidays = ParameterService.load_parameters()
+            params = ParameterService.load_parameters()
+            add_on_holidays = params['add_on_holidays']
+            exclude_holidays = params['exclude_holidays']
             public_holidays = load_malaysia_holidays()
             
             manual_inputs = cls._read_manual_inputs()
-            cls._apply_manual_inputs(session, manual_inputs, public_holidays, add_on_holidays)
+            cls._apply_manual_inputs(session, manual_inputs, public_holidays, add_on_holidays, exclude_holidays)
             
             _calculate_available_settlements(
-                session, merchant, year, month, public_holidays, add_on_holidays
+                session, merchant, year, month, public_holidays, add_on_holidays, exclude_holidays
             )
             
             session.commit()
@@ -318,7 +322,8 @@ class DepositSheetService:
     
     @classmethod
     def _apply_manual_inputs(cls, session, manual_inputs: List[Dict],
-                             public_holidays: Set[str], add_on_holidays: Set[str]) -> int:
+                             public_holidays: Set[str], add_on_holidays: Set[str],
+                             exclude_holidays: Set[str] = None) -> int:
         if not manual_inputs:
             return 0
         
@@ -341,7 +346,7 @@ class DepositSheetService:
                 record.fpx_settlement_rule = input_data['fpx_settlement_rule'].upper()
                 record.fpx_settlement_date = calculate_settlement_date(
                     record.transaction_date, record.fpx_settlement_rule,
-                    public_holidays, add_on_holidays
+                    public_holidays, add_on_holidays, exclude_holidays
                 )
             else:
                 record.fpx_settlement_rule = None
@@ -356,7 +361,7 @@ class DepositSheetService:
                 record.ewallet_settlement_rule = input_data['ewallet_settlement_rule'].upper()
                 record.ewallet_settlement_date = calculate_settlement_date(
                     record.transaction_date, record.ewallet_settlement_rule,
-                    public_holidays, add_on_holidays
+                    public_holidays, add_on_holidays, exclude_holidays
                 )
             else:
                 record.ewallet_settlement_rule = None

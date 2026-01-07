@@ -15,7 +15,7 @@ class ParameterService:
     _cache = None
     
     @classmethod
-    def load_parameters(cls) -> Set[str]:
+    def load_parameters(cls) -> Dict[str, Set[str]]:
         if cls._cache is None:
             cls._cache = cls._fetch_from_db()
         return cls._cache
@@ -25,15 +25,21 @@ class ParameterService:
         cls._cache = None
     
     @staticmethod
-    def _fetch_from_db() -> Set[str]:
+    def _fetch_from_db() -> Dict[str, Set[str]]:
         session = get_session()
         try:
             params = session.query(Parameter).all()
             add_on_holidays = set()
+            exclude_holidays = set()
             for p in params:
-                if p.type == 'ADD_ON_HOLIDAYS':
+                if p.type == 'ADD_ON_HOLIDAY':
                     add_on_holidays.add(p.key)
-            return add_on_holidays
+                elif p.type == 'EXCLUDE_HOLIDAY':
+                    exclude_holidays.add(p.key)
+            return {
+                'add_on_holidays': add_on_holidays,
+                'exclude_holidays': exclude_holidays
+            }
         finally:
             session.close()
     
@@ -131,16 +137,23 @@ class ParameterService:
             params = session.query(Parameter).all()
 
             add_on_holidays = []
+            exclude_holidays = []
 
             for p in params:
-                if p.type == 'ADD_ON_HOLIDAYS':
+                if p.type == 'ADD_ON_HOLIDAY':
                     add_on_holidays.append({
+                        'date': p.key,
+                        'description': p.description
+                    })
+                elif p.type == 'EXCLUDE_HOLIDAY':
+                    exclude_holidays.append({
                         'date': p.key,
                         'description': p.description
                     })
 
             return {
-                'add_on_holidays': add_on_holidays
+                'add_on_holidays': add_on_holidays,
+                'exclude_holidays': exclude_holidays
             }
 
         finally:

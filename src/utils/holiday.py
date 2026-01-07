@@ -67,7 +67,8 @@ def calculate_settlement_date(
     transaction_date_str: str, 
     settlement_rule: str, 
     holiday_set: Set[str],
-    add_on_holidays: Set[str] = None
+    add_on_holidays: Set[str] = None,
+    exclude_holidays: Set[str] = None
 ) -> str:
     if not transaction_date_str or not settlement_rule:
         return ''
@@ -89,6 +90,8 @@ def calculate_settlement_date(
         return ''
     
     all_holidays = set(holiday_set) if holiday_set else set()
+    if exclude_holidays:
+        all_holidays = all_holidays - exclude_holidays
     if add_on_holidays:
         all_holidays = all_holidays.union(add_on_holidays)
     
