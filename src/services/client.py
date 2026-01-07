@@ -5,6 +5,7 @@ from typing import List, Any
 
 from src.core.logger import get_logger
 from src.core.loader import get_service_account_path, get_spreadsheet_id, load_settings
+from src.utils.retry import exponential_backoff
 
 logger = get_logger(__name__)
 
@@ -29,6 +30,7 @@ class SheetsClient:
         self.client = authorize(credentials)
         self.spreadsheet = self.client.open_by_key(self.spreadsheet_id)
     
+    @exponential_backoff()
     def write_data(self, sheet_name: str, data: List[List[Any]], start_cell: str = 'A1'):
         try:
             worksheet = self.spreadsheet.worksheet(sheet_name)
@@ -37,6 +39,7 @@ class SheetsClient:
             logger.error(f"Failed to write to {sheet_name}: {e}")
             raise
 
+    @exponential_backoff()
     def read_data(self, sheet_name: str, range_spec: str = '') -> List[List[Any]]:
         try:
             worksheet = self.spreadsheet.worksheet(sheet_name)
@@ -49,6 +52,7 @@ class SheetsClient:
             logger.error(f"Failed to read from {sheet_name}: {e}")
             raise
     
+    @exponential_backoff()
     def set_dropdown_range(self, sheet_name: str, col: str, start_row: int, end_row: int, values: List[str]):
         try:
             worksheet = self.spreadsheet.worksheet(sheet_name)
@@ -82,6 +86,7 @@ class SheetsClient:
         except Exception as e:
             logger.error(f"Failed to set dropdown range in {sheet_name}!{col}: {e}")
 
+    @exponential_backoff()
     def clear_data_validation(self, sheet_name: str, range_spec: str):
         try:
             worksheet = self.spreadsheet.worksheet(sheet_name)
@@ -116,6 +121,7 @@ class SheetsClient:
         except Exception as e:
             logger.error(f"Failed to clear data validation in {sheet_name}!{range_spec}: {e}")
     
+    @exponential_backoff()
     def set_row_background(self, sheet_name: str, row: int, start_col: int, end_col: int, 
                            red: float = 0.9, green: float = 0.9, blue: float = 0.9):
         try:
@@ -148,6 +154,7 @@ class SheetsClient:
         except Exception as e:
             logger.error(f"Failed to set row background in {sheet_name}: {e}")
 
+    @exponential_backoff()
     def clear_row_backgrounds(self, sheet_name: str, start_row: int, end_row: int, start_col: int, end_col: int):
         try:
             worksheet = self.spreadsheet.worksheet(sheet_name)

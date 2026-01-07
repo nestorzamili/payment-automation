@@ -113,6 +113,7 @@ def _run_full_sync(run_id: str):
     global _sync_running, _current_run_id
     
     try:
+        JobSheetService.clear_sheet()
         accounts = load_accounts()
         platform_ranges = _get_date_service().get_platform_ranges()
         all_jobs = []
@@ -143,6 +144,7 @@ def _run_platform_sync(run_id: str, platform: str):
     global _sync_running, _current_run_id
     
     try:
+        JobSheetService.clear_sheet()
         accounts = load_accounts()
         target_accounts = [a for a in accounts if a['platform'] == platform]
         
