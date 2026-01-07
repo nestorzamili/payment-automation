@@ -30,7 +30,7 @@ class JobSheetService:
     def _build_row(cls, job: Dict[str, Any]) -> List[Any]:
         date_range = f"{job.get('from_date', '')} - {job.get('to_date', '')}"
         return [
-            job.get('id', ''),
+            job.get('job_id', ''),
             job.get('job_type', ''),
             job.get('platform', ''),
             job.get('account_label', ''),
@@ -59,7 +59,7 @@ class JobSheetService:
 
     @classmethod
     def update_job_by_id(cls, job: Dict[str, Any]) -> bool:
-        job_id = job.get('id')
+        job_id = job.get('job_id')
         if not job_id:
             logger.warning("Cannot update job: missing job id")
             return False

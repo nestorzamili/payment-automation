@@ -351,7 +351,7 @@ class KiraPGSheetService:
             client.write_data(KIRA_PG_SHEET, rows, f'A{DATA_START_ROW}')
             
             end_row = DATA_START_ROW + len(rows)
-            client.set_dropdown_range(KIRA_PG_SHEET, 'J', DATA_START_ROW, end_row, ['T+1', 'T+2', 'T+3'])
+            client.set_dropdown_range(KIRA_PG_SHEET, 'J', DATA_START_ROW, end_row, ['T+1', 'T+2', 'T+3', 'T+4', 'T+5'])
             client.set_dropdown_range(KIRA_PG_SHEET, 'L', DATA_START_ROW, end_row, ['percentage', 'flat'])
         
         logger.info(f"Wrote {len(rows)} rows to Kira PG sheet")
