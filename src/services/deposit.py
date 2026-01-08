@@ -430,7 +430,7 @@ class DepositSheetService:
             
             end_row = DATA_START_ROW + len(rows)
             fee_types = ['percentage', 'per_volume', 'flat']
-            settlement_rules = ['T+1', 'T+2', 'T+3', 'T+4', 'T+5']
+            settlement_rules = ['T+0', 'T+1', 'T+2', 'T+3', 'T+4', 'T+5']
             
             client.set_dropdown_range(DEPOSIT_SHEET, 'E', DATA_START_ROW, end_row, fee_types)
             client.set_dropdown_range(DEPOSIT_SHEET, 'I', DATA_START_ROW, end_row, settlement_rules)
