@@ -82,6 +82,14 @@ def _recalculate_balances(session, merchant: str, year: int, month: int):
 
     prev_payout, prev_available = _get_previous_month_balance(session, merchant, year, month)
 
+    deposits = session.query(Deposit).filter(
+        and_(
+            Deposit.merchant == merchant,
+            Deposit.transaction_date.like(f"{date_prefix}%")
+        )
+    ).all()
+    deposit_map = {d.transaction_date: d for d in deposits}
+
     rows = session.query(MerchantLedger).filter(
         and_(
             MerchantLedger.merchant == merchant,
@@ -90,7 +98,8 @@ def _recalculate_balances(session, merchant: str, year: int, month: int):
     ).order_by(MerchantLedger.transaction_date).all()
 
     for row in rows:
-        available_total = row.available_total or 0
+        deposit = deposit_map.get(row.transaction_date)
+        available_total = deposit.available_total if deposit else 0
 
         has_payout_activity = (
             row.withdrawal_amount is not None
@@ -326,39 +335,68 @@ class MerchantLedgerSheetService:
                 ledger.available_ewallet = deposit.available_ewallet
                 ledger.available_total = deposit.available_total
         
+        all_dates = set(deposit_map.keys()) | set(ledger_map.keys())
+        
         result = []
-        for deposit in deposits:
-            date = deposit.transaction_date
+        for date in sorted(all_dates):
+            deposit = deposit_map.get(date)
             ledger = ledger_map.get(date)
             
-            fpx_gross = round_decimal((deposit.fpx_amount or 0) - (deposit.fpx_fee_amount or 0))
-            ewallet_gross = round_decimal((deposit.ewallet_amount or 0) - (deposit.ewallet_fee_amount or 0))
-            
-            result.append({
-                'id': ledger.id if ledger else '',
-                'transaction_date': date,
-                'fpx_amount': deposit.fpx_amount,
-                'fpx_fee': deposit.fpx_fee_amount,
-                'fpx_gross': fpx_gross,
-                'ewallet_amount': deposit.ewallet_amount,
-                'ewallet_fee': deposit.ewallet_fee_amount,
-                'ewallet_gross': ewallet_gross,
-                'total_gross': round_decimal((fpx_gross or 0) + (ewallet_gross or 0)),
-                'total_fee': deposit.total_fees,
-                'available_fpx': deposit.available_fpx,
-                'available_ewallet': deposit.available_ewallet,
-                'available_total': deposit.available_total,
-                'settlement_fund': ledger.settlement_fund if ledger else None,
-                'settlement_charges': ledger.settlement_charges if ledger else None,
-                'withdrawal_amount': ledger.withdrawal_amount if ledger else None,
-                'withdrawal_rate': ledger.withdrawal_rate if ledger else None,
-                'withdrawal_charges': ledger.withdrawal_charges if ledger else None,
-                'topup_payout_pool': ledger.topup_payout_pool if ledger else None,
-                'payout_pool_balance': ledger.payout_pool_balance if ledger else None,
-                'available_balance': ledger.available_balance if ledger else None,
-                'total_balance': ledger.total_balance if ledger else None,
-                'remarks': ledger.remarks if ledger else deposit.remarks,
-            })
+            if deposit:
+                fpx_gross = round_decimal((deposit.fpx_amount or 0) - (deposit.fpx_fee_amount or 0))
+                ewallet_gross = round_decimal((deposit.ewallet_amount or 0) - (deposit.ewallet_fee_amount or 0))
+                
+                result.append({
+                    'id': ledger.id if ledger else '',
+                    'transaction_date': date,
+                    'fpx_amount': deposit.fpx_amount,
+                    'fpx_fee': deposit.fpx_fee_amount,
+                    'fpx_gross': fpx_gross,
+                    'ewallet_amount': deposit.ewallet_amount,
+                    'ewallet_fee': deposit.ewallet_fee_amount,
+                    'ewallet_gross': ewallet_gross,
+                    'total_gross': round_decimal((fpx_gross or 0) + (ewallet_gross or 0)),
+                    'total_fee': deposit.total_fees,
+                    'available_fpx': deposit.available_fpx,
+                    'available_ewallet': deposit.available_ewallet,
+                    'available_total': deposit.available_total,
+                    'settlement_fund': ledger.settlement_fund if ledger else None,
+                    'settlement_charges': ledger.settlement_charges if ledger else None,
+                    'withdrawal_amount': ledger.withdrawal_amount if ledger else None,
+                    'withdrawal_rate': ledger.withdrawal_rate if ledger else None,
+                    'withdrawal_charges': ledger.withdrawal_charges if ledger else None,
+                    'topup_payout_pool': ledger.topup_payout_pool if ledger else None,
+                    'payout_pool_balance': ledger.payout_pool_balance if ledger else None,
+                    'available_balance': ledger.available_balance if ledger else None,
+                    'total_balance': ledger.total_balance if ledger else None,
+                    'remarks': ledger.remarks if ledger else deposit.remarks,
+                })
+            elif ledger:
+                result.append({
+                    'id': ledger.id,
+                    'transaction_date': date,
+                    'fpx_amount': None,
+                    'fpx_fee': None,
+                    'fpx_gross': None,
+                    'ewallet_amount': None,
+                    'ewallet_fee': None,
+                    'ewallet_gross': None,
+                    'total_gross': None,
+                    'total_fee': None,
+                    'available_fpx': ledger.available_fpx,
+                    'available_ewallet': ledger.available_ewallet,
+                    'available_total': ledger.available_total,
+                    'settlement_fund': ledger.settlement_fund,
+                    'settlement_charges': ledger.settlement_charges,
+                    'withdrawal_amount': ledger.withdrawal_amount,
+                    'withdrawal_rate': ledger.withdrawal_rate,
+                    'withdrawal_charges': ledger.withdrawal_charges,
+                    'topup_payout_pool': ledger.topup_payout_pool,
+                    'payout_pool_balance': ledger.payout_pool_balance,
+                    'available_balance': ledger.available_balance,
+                    'total_balance': ledger.total_balance,
+                    'remarks': ledger.remarks,
+                })
         
         return result
     

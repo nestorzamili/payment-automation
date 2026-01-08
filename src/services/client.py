@@ -51,6 +51,43 @@ class SheetsClient:
         except Exception as e:
             logger.error(f"Failed to read from {sheet_name}: {e}")
             raise
+
+    @exponential_backoff()
+    def set_dropdown(self, sheet_name: str, cell: str, values: List[str]):
+        try:
+            worksheet = self.spreadsheet.worksheet(sheet_name)
+            
+            col = ''.join(filter(str.isalpha, cell))
+            row = int(''.join(filter(str.isdigit, cell)))
+            
+            col_num = sum((ord(c.upper()) - ord('A') + 1) * (26 ** i) 
+                         for i, c in enumerate(reversed(col)))
+            
+            sheet_id = worksheet.id
+            
+            request = {
+                "setDataValidation": {
+                    "range": {
+                        "sheetId": sheet_id,
+                        "startRowIndex": row - 1,
+                        "endRowIndex": row,
+                        "startColumnIndex": col_num - 1,
+                        "endColumnIndex": col_num
+                    },
+                    "rule": {
+                        "condition": {
+                            "type": "ONE_OF_LIST",
+                            "values": [{"userEnteredValue": v} for v in values]
+                        },
+                        "showCustomUi": True,
+                        "strict": False
+                    }
+                }
+            }
+            
+            self.spreadsheet.batch_update({"requests": [request]})
+        except Exception as e:
+            logger.error(f"Failed to set dropdown in {sheet_name}!{cell}: {e}")
     
     @exponential_backoff()
     def set_dropdown_range(self, sheet_name: str, col: str, start_row: int, end_row: int, values: List[str]):
