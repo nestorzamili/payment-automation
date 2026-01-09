@@ -349,6 +349,7 @@ class AgentLedgerSheetService:
                     'commission_rate': ledger.commission_rate if ledger else None,
                     'commission_amount': ledger.commission_amount if ledger else None,
                     'balance': ledger.balance if ledger else None,
+                    'updated_at': ledger.updated_at if ledger else None,
                 })
             elif ledger:
                 rate_fpx = ledger.commission_rate_fpx
@@ -377,6 +378,7 @@ class AgentLedgerSheetService:
                     'commission_rate': ledger.commission_rate,
                     'commission_amount': ledger.commission_amount,
                     'balance': ledger.balance,
+                    'updated_at': ledger.updated_at,
                 })
         
         return result
@@ -402,7 +404,7 @@ class AgentLedgerSheetService:
                 rec.get('commission_rate') if rec.get('commission_rate') is not None else '',
                 rec.get('commission_amount') if rec.get('commission_amount') is not None else '',
                 rec.get('balance') if rec.get('balance') is not None else 0,
-                '',
+                rec.get('updated_at') or '',
             ])
         
         worksheet = client.spreadsheet.worksheet(AGENT_LEDGER_SHEET)

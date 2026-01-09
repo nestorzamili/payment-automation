@@ -372,6 +372,7 @@ class MerchantLedgerSheetService:
                     'available_balance': ledger.available_balance if ledger else None,
                     'total_balance': ledger.total_balance if ledger else None,
                     'remarks': ledger.remarks if ledger else deposit.remarks,
+                    'updated_at': ledger.updated_at if ledger else None,
                 })
             elif ledger:
                 result.append({
@@ -398,6 +399,7 @@ class MerchantLedgerSheetService:
                     'available_balance': ledger.available_balance,
                     'total_balance': ledger.total_balance,
                     'remarks': ledger.remarks,
+                    'updated_at': ledger.updated_at,
                 })
         
         return result
@@ -431,7 +433,7 @@ class MerchantLedgerSheetService:
                 rec.get('payout_pool_balance') if rec.get('payout_pool_balance') is not None else '',
                 rec.get('available_balance') if rec.get('available_balance') is not None else '',
                 rec.get('total_balance') if rec.get('total_balance') is not None else '',
-                '',
+                rec.get('updated_at') or '',
                 rec.get('remarks') if rec.get('remarks') is not None else '',
             ])
         
