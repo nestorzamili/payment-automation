@@ -317,8 +317,8 @@ class AgentLedgerSheetService:
                 rate_fpx = ledger.commission_rate_fpx if ledger else None
                 rate_ewallet = ledger.commission_rate_ewallet if ledger else None
                 
-                fpx_commission = round_decimal(kira_fpx * rate_fpx / 1000) if rate_fpx else None
-                ewallet_commission = round_decimal(kira_ewallet * rate_ewallet / 1000) if rate_ewallet else None
+                fpx_commission = round_decimal(kira_fpx * rate_fpx / 100) if rate_fpx else None
+                ewallet_commission = round_decimal(kira_ewallet * rate_ewallet / 100) if rate_ewallet else None
                 
                 gross = None
                 if fpx_commission is not None or ewallet_commission is not None:
@@ -326,11 +326,11 @@ class AgentLedgerSheetService:
                 
                 available_fpx = 0
                 if date in fpx_by_settlement and rate_fpx:
-                    available_fpx = round_decimal(fpx_by_settlement[date] * rate_fpx / 1000) or 0
+                    available_fpx = round_decimal(fpx_by_settlement[date] * rate_fpx / 100) or 0
 
                 available_ewallet = 0
                 if date in ewallet_by_settlement and rate_ewallet:
-                    available_ewallet = round_decimal(ewallet_by_settlement[date] * rate_ewallet / 1000) or 0
+                    available_ewallet = round_decimal(ewallet_by_settlement[date] * rate_ewallet / 100) or 0
                 
                 result.append({
                     'id': ledger.id if ledger else '',
