@@ -159,6 +159,8 @@ class AgentLedgerSheetService:
         if not year or not month:
             raise ValueError("Invalid period format")
 
+        init_agent_ledger(merchant, year, month)
+
         session = get_session()
 
         try:
