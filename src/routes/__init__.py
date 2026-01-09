@@ -1,6 +1,6 @@
 from flask import Flask
 
-from src.routes import health, sync, merchant_ledger, agent_ledger, ledger_summary, kira_pg, deposit, parameter
+from src.routes import health, sync, merchant_ledger, agent_ledger, ledger_summary, kira_pg, deposit, parameter, account
 
 
 PUBLIC_ENDPOINTS = ('health.health_check',)
@@ -15,3 +15,4 @@ def register_routes(app: Flask):
     app.register_blueprint(kira_pg.bp)
     app.register_blueprint(deposit.bp)
     app.register_blueprint(parameter.bp)
+    app.register_blueprint(account.bp)

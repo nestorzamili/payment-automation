@@ -371,3 +371,35 @@ class Parameter(Base):
             'description': self.description,
             'updated_at': self.updated_at
         }
+
+
+class Account(Base):
+    __tablename__ = 'account'
+
+    account_id = Column(Integer, primary_key=True, autoincrement=True)
+    label = Column(String(100), nullable=False, unique=True)
+    platform = Column(String(50), nullable=False)
+    base_url = Column(String(255))
+    need_captcha = Column(Integer, default=0)
+    is_active = Column(Integer, default=1)
+    cred_username = Column(String(100))
+    cred_password = Column(String(100))
+    created_at = Column(String(19), default=_now_kl)
+    updated_at = Column(String(19), default=_now_kl, onupdate=_now_kl)
+
+    def to_dict(self, include_credentials: bool = False) -> dict:
+        result = {
+            'account_id': self.account_id,
+            'label': self.label,
+            'platform': self.platform,
+            'base_url': self.base_url,
+            'need_captcha': self.need_captcha,
+            'is_active': self.is_active,
+            'created_at': self.created_at,
+            'updated_at': self.updated_at
+        }
+        if include_credentials:
+            result['cred_username'] = self.cred_username
+            result['cred_password'] = self.cred_password
+        return result
+

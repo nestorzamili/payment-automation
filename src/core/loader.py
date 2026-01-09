@@ -25,15 +25,29 @@ def load_settings() -> Dict[str, Any]:
 
 
 def load_accounts() -> List[Dict[str, Any]]:
-    accounts_path = PROJECT_ROOT / 'config' / 'accounts.json'
+    from src.services.account import get_active_accounts
     
-    if not accounts_path.exists():
-        raise FileNotFoundError(f"Accounts file not found: {accounts_path}")
+    accounts = get_active_accounts()
+    result = []
     
-    with open(accounts_path, 'r', encoding='utf-8') as f:
-        data = json.load(f)
+    for acc in accounts:
+        credentials = {}
+        if acc.platform in ['kira', 'm1']:
+            credentials = {'username': acc.cred_username, 'password': acc.cred_password}
+        elif acc.platform == 'axai':
+            credentials = {'email': acc.cred_username, 'password': acc.cred_password}
+        elif acc.platform == 'fiuu':
+            credentials = {'merchant_id': acc.cred_username, 'private_key': acc.cred_password}
+        
+        result.append({
+            'label': acc.label,
+            'platform': acc.platform,
+            'credentials': credentials,
+            'base_url': acc.base_url,
+            'need_captcha': acc.need_captcha == 1
+        })
     
-    return data['accounts']
+    return result
 
 
 def get_service_account_path() -> Path:
