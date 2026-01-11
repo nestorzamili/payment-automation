@@ -322,7 +322,9 @@ class AgentLedger(Base):
     commission_rate = Column(Float)
     commission_amount = Column(Float)
     
+    debit = Column(Float)
     balance = Column(Float)
+    accumulative_balance = Column(Float)
     
     updated_at = Column(String(30), default=_now_kl, onupdate=_now_kl)
 
@@ -343,7 +345,9 @@ class AgentLedger(Base):
             'volume': self._round(self.volume),
             'commission_rate': self._round(self.commission_rate),
             'commission_amount': self._round(self.commission_amount),
+            'debit': self._round(self.debit),
             'balance': self._round(self.balance),
+            'accumulative_balance': self._round(self.accumulative_balance),
             'updated_at': self.updated_at
         }
 

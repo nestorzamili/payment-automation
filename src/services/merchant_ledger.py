@@ -250,18 +250,26 @@ class MerchantLedgerSheetService:
         client = cls.get_client()
         data = client.read_data(MERCHANT_LEDGER_SHEET, DATA_RANGE)
         
+        def safe_get(row, idx):
+            if idx < len(row):
+                val = row[idx]
+                if val is not None and str(val).strip() != '':
+                    return val
+            return None
+        
         manual_inputs = []
         for row in data:
             if len(row) < 1 or not row[0]:
                 continue
             
             record_id = row[0]
-            settlement_fund = row[13] if len(row) > 13 else ''
-            settlement_charges = row[14] if len(row) > 14 else ''
-            withdrawal_amount = row[15] if len(row) > 15 else ''
-            withdrawal_rate = row[16] if len(row) > 16 else ''
-            topup_payout_pool = row[18] if len(row) > 18 else ''
-            remarks = row[23].strip() if len(row) > 23 and row[23] else ''
+            settlement_fund = safe_get(row, 13)
+            settlement_charges = safe_get(row, 14)
+            withdrawal_amount = safe_get(row, 15)
+            withdrawal_rate = safe_get(row, 16)
+            topup_payout_pool = safe_get(row, 18)
+            remarks_val = safe_get(row, 23)
+            remarks = remarks_val.strip() if remarks_val else None
             
             manual_inputs.append({
                 'id': int(record_id),
@@ -270,7 +278,7 @@ class MerchantLedgerSheetService:
                 'withdrawal_amount': to_float(withdrawal_amount) if withdrawal_amount else None,
                 'withdrawal_rate': to_float(withdrawal_rate) if withdrawal_rate else None,
                 'topup_payout_pool': to_float(topup_payout_pool) if topup_payout_pool else None,
-                'remarks': remarks if remarks else None,
+                'remarks': remarks,
             })
         
         return manual_inputs
@@ -290,18 +298,26 @@ class MerchantLedgerSheetService:
             if not record:
                 continue
             
-            record.settlement_fund = input_data['settlement_fund']
-            record.settlement_charges = input_data['settlement_charges']
-            record.withdrawal_amount = input_data['withdrawal_amount']
-            record.withdrawal_rate = input_data['withdrawal_rate']
+            if input_data['settlement_fund'] is not None:
+                record.settlement_fund = input_data['settlement_fund']
+            
+            if input_data['settlement_charges'] is not None:
+                record.settlement_charges = input_data['settlement_charges']
+            
+            if input_data['withdrawal_amount'] is not None:
+                record.withdrawal_amount = input_data['withdrawal_amount']
+            
+            if input_data['withdrawal_rate'] is not None:
+                record.withdrawal_rate = input_data['withdrawal_rate']
             
             if record.withdrawal_amount and record.withdrawal_rate:
                 record.withdrawal_charges = round_decimal(record.withdrawal_amount * record.withdrawal_rate / 100)
-            else:
-                record.withdrawal_charges = None
             
-            record.topup_payout_pool = input_data['topup_payout_pool']
-            record.remarks = input_data['remarks']
+            if input_data['topup_payout_pool'] is not None:
+                record.topup_payout_pool = input_data['topup_payout_pool']
+            
+            if input_data['remarks'] is not None:
+                record.remarks = input_data['remarks']
             
             count += 1
         

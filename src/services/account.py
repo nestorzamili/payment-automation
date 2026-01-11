@@ -61,6 +61,10 @@ PLATFORM_BASE_URLS = {
 def create_account(data: Dict[str, Any]) -> Account:
     session = get_session()
     try:
+        existing = session.query(Account).filter(Account.label == data['label']).first()
+        if existing:
+            raise ValueError(f"Account dengan label '{data['label']}' sudah ada. Gunakan label yang berbeda.")
+        
         platform = data['platform']
         base_url = data.get('base_url') or PLATFORM_BASE_URLS.get(platform)
         

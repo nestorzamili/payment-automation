@@ -14,7 +14,7 @@ logger = get_logger(__name__)
 
 AGENT_LEDGER_SHEET = 'Agents Balance & Settlement Ledger'
 DATA_START_ROW = 5
-DATA_RANGE = 'A5:O50'
+DATA_RANGE = 'A5:Q50'
 
 MONTHS = {
     'Jan': 1, 'Feb': 2, 'Mar': 3, 'Apr': 4, 'May': 5, 'Jun': 6,
@@ -73,7 +73,7 @@ def _aggregate_by_settlement(deposits, date_prefix: str):
     return fpx_by_settlement, ewallet_by_settlement
 
 
-def _get_previous_month_balance(session, merchant: str, year: int, month: int) -> float:
+def _get_previous_month_accum_balance(session, merchant: str, year: int, month: int) -> float:
     prev_month = month - 1
     prev_year = year
     if prev_month == 0:
@@ -89,14 +89,14 @@ def _get_previous_month_balance(session, merchant: str, year: int, month: int) -
         )
     ).order_by(AgentLedger.transaction_date.desc()).first()
 
-    return last_record.balance or 0 if last_record else 0
+    return last_record.accumulative_balance or 0 if last_record else 0
 
 
 def _recalculate_balances(session, merchant: str, year: int, month: int,
                           fpx_by_settlement: dict, ewallet_by_settlement: dict):
     date_prefix = f"{year}-{month:02d}"
 
-    prev_balance = _get_previous_month_balance(session, merchant, year, month)
+    prev_accum = _get_previous_month_accum_balance(session, merchant, year, month)
 
     rows = session.query(AgentLedger).filter(
         and_(
@@ -112,22 +112,25 @@ def _recalculate_balances(session, merchant: str, year: int, month: int,
 
         avail_fpx = 0
         if date in fpx_by_settlement and rate_fpx:
-            avail_fpx = round_decimal(fpx_by_settlement[date] * rate_fpx / 1000) or 0
+            avail_fpx = round_decimal(fpx_by_settlement[date] * rate_fpx / 100) or 0
 
         avail_ewallet = 0
         if date in ewallet_by_settlement and rate_ewallet:
-            avail_ewallet = round_decimal(ewallet_by_settlement[date] * rate_ewallet / 1000) or 0
+            avail_ewallet = round_decimal(ewallet_by_settlement[date] * rate_ewallet / 100) or 0
 
         available_total = avail_fpx + avail_ewallet
         commission_amount = row.commission_amount or 0
+        debit = row.debit or 0
 
-        has_activity = available_total > 0 or commission_amount > 0 or prev_balance != 0
+        has_activity = available_total > 0 or commission_amount > 0 or debit > 0 or prev_accum != 0
 
         if has_activity:
-            row.balance = round_decimal(prev_balance + available_total + commission_amount)
-            prev_balance = row.balance
+            row.balance = round_decimal(available_total + commission_amount - debit)
+            row.accumulative_balance = round_decimal(prev_accum + row.balance)
+            prev_accum = row.accumulative_balance
         else:
             row.balance = None
+            row.accumulative_balance = None
 
 
 class AgentLedgerSheetService:
@@ -242,6 +245,7 @@ class AgentLedgerSheetService:
             commission_rate_ewallet = row[4] if len(row) > 4 else ''
             volume = row[10] if len(row) > 10 else ''
             commission_rate = row[11] if len(row) > 11 else ''
+            debit = row[13] if len(row) > 13 else ''
             
             manual_inputs.append({
                 'id': int(record_id),
@@ -249,6 +253,7 @@ class AgentLedgerSheetService:
                 'commission_rate_ewallet': to_float(commission_rate_ewallet) if commission_rate_ewallet else None,
                 'volume': to_float(volume) if volume else None,
                 'commission_rate': to_float(commission_rate) if commission_rate else None,
+                'debit': to_float(debit) if debit else None,
             })
         
         return manual_inputs
@@ -272,6 +277,7 @@ class AgentLedgerSheetService:
             record.commission_rate_ewallet = input_data['commission_rate_ewallet']
             record.volume = input_data['volume']
             record.commission_rate = input_data['commission_rate']
+            record.debit = input_data['debit']
             
             if record.volume and record.commission_rate:
                 record.commission_amount = round_decimal(record.volume * record.commission_rate)
@@ -348,7 +354,9 @@ class AgentLedgerSheetService:
                     'volume': ledger.volume if ledger else None,
                     'commission_rate': ledger.commission_rate if ledger else None,
                     'commission_amount': ledger.commission_amount if ledger else None,
+                    'debit': ledger.debit if ledger else None,
                     'balance': ledger.balance if ledger else None,
+                    'accumulative_balance': ledger.accumulative_balance if ledger else None,
                     'updated_at': ledger.updated_at if ledger else None,
                 })
             elif ledger:
@@ -377,7 +385,9 @@ class AgentLedgerSheetService:
                     'volume': ledger.volume,
                     'commission_rate': ledger.commission_rate,
                     'commission_amount': ledger.commission_amount,
+                    'debit': ledger.debit,
                     'balance': ledger.balance,
+                    'accumulative_balance': ledger.accumulative_balance,
                     'updated_at': ledger.updated_at,
                 })
         
@@ -403,7 +413,9 @@ class AgentLedgerSheetService:
                 rec.get('volume') if rec.get('volume') is not None else '',
                 rec.get('commission_rate') if rec.get('commission_rate') is not None else '',
                 rec.get('commission_amount') if rec.get('commission_amount') is not None else '',
+                rec.get('debit') if rec.get('debit') is not None else '',
                 rec.get('balance') if rec.get('balance') is not None else 0,
+                rec.get('accumulative_balance') if rec.get('accumulative_balance') is not None else 0,
                 rec.get('updated_at') or '',
             ])
         
