@@ -8,7 +8,7 @@ from src.core.models import KiraPG, KiraTransaction, PGTransaction
 from src.core.logger import get_logger
 from src.services.client import SheetsClient
 from src.services.parameters import ParameterService
-from src.utils.helpers import categorize_channel, round_decimal, to_float
+from src.utils.helpers import categorize_channel, round_decimal, to_float, safe_get_value, parse_period, MONTHS
 from src.utils.holiday import load_malaysia_holidays, calculate_settlement_date
 
 logger = get_logger(__name__)
@@ -17,10 +17,6 @@ KIRA_PG_SHEET = 'Kira PG'
 DATA_START_ROW = 4
 DATA_RANGE = 'A4:R300'
 
-MONTHS = {
-    'Jan': 1, 'Feb': 2, 'Mar': 3, 'Apr': 4, 'May': 5, 'Jun': 6,
-    'Jul': 7, 'Aug': 8, 'Sep': 9, 'Oct': 10, 'Nov': 11, 'Dec': 12
-}
 
 
 def init_kira_pg():
@@ -191,7 +187,7 @@ class KiraPGSheetService:
         if not period_value or not period_value[0]:
             raise ValueError("Period not selected")
         
-        year, month = cls._parse_period(period_value[0][0])
+        year, month = parse_period(period_value[0][0])
         if not year or not month:
             raise ValueError("Invalid period format")
         
@@ -228,20 +224,7 @@ class KiraPGSheetService:
         finally:
             session.close()
     
-    @classmethod
-    def _parse_period(cls, period_str: str) -> tuple:
-        if not period_str:
-            return None, None
-        
-        match = re.match(r'(\w+)\s+(\d{4})', str(period_str))
-        if not match:
-            return None, None
-        
-        month_name = match.group(1)
-        year = int(match.group(2))
-        month = MONTHS.get(month_name)
-        
-        return year, month
+
     
     @classmethod
     def _read_manual_inputs(cls) -> List[Dict[str, Any]]:
@@ -254,17 +237,20 @@ class KiraPGSheetService:
                 continue
             
             record_id = row[0]
-            settlement_rule = row[9].strip() if len(row) > 9 and row[9] else ''
-            fee_type = row[11].strip() if len(row) > 11 and row[11] else ''
-            fee_rate = row[12] if len(row) > 12 else ''
-            remarks = row[17].strip() if len(row) > 17 and row[17] else ''
+            settlement_rule_val = safe_get_value(row, 9)
+            settlement_rule = settlement_rule_val.strip() if settlement_rule_val else None
+            fee_type_val = safe_get_value(row, 11)
+            fee_type = fee_type_val.strip() if fee_type_val else None
+            fee_rate = safe_get_value(row, 12)
+            remarks_val = safe_get_value(row, 17)
+            remarks = remarks_val.strip() if remarks_val else None
             
             manual_inputs.append({
                 'id': int(record_id),
-                'settlement_rule': settlement_rule if settlement_rule else None,
-                'fee_type': fee_type if fee_type else None,
-                'fee_rate': to_float(fee_rate) if fee_rate else None,
-                'remarks': remarks if remarks else None,
+                'settlement_rule': settlement_rule,
+                'fee_type': fee_type,
+                'fee_rate': to_float(fee_rate),
+                'remarks': remarks,
             })
         
         return manual_inputs

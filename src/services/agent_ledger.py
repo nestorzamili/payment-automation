@@ -8,7 +8,7 @@ from src.core.database import get_session
 from src.core.models import AgentLedger, Deposit
 from src.core.logger import get_logger
 from src.services.client import SheetsClient
-from src.utils.helpers import round_decimal, to_float
+from src.utils.helpers import round_decimal, to_float, safe_get_value, parse_period, MONTHS
 
 logger = get_logger(__name__)
 
@@ -16,10 +16,6 @@ AGENT_LEDGER_SHEET = 'Agents Balance & Settlement Ledger'
 DATA_START_ROW = 5
 DATA_RANGE = 'A5:Q50'
 
-MONTHS = {
-    'Jan': 1, 'Feb': 2, 'Mar': 3, 'Apr': 4, 'May': 5, 'Jun': 6,
-    'Jul': 7, 'Aug': 8, 'Sep': 9, 'Oct': 10, 'Nov': 11, 'Dec': 12
-}
 
 
 def init_agent_ledger(merchant: str, year: int, month: int):
@@ -158,7 +154,7 @@ class AgentLedgerSheetService:
         if not period_str:
             raise ValueError("Period not selected")
 
-        year, month = cls._parse_period(period_str)
+        year, month = parse_period(period_str)
         if not year or not month:
             raise ValueError("Invalid period format")
 
@@ -198,20 +194,7 @@ class AgentLedgerSheetService:
         finally:
             session.close()
     
-    @classmethod
-    def _parse_period(cls, period_str: str) -> tuple:
-        if not period_str:
-            return None, None
-        
-        match = re.match(r'(\w+)\s+(\d{4})', str(period_str))
-        if not match:
-            return None, None
-        
-        month_name = match.group(1)
-        year = int(match.group(2))
-        month = MONTHS.get(month_name)
 
-        return year, month
 
     @classmethod
     def _get_prev_month_deposits(cls, session, merchant: str, year: int, month: int):
@@ -241,19 +224,19 @@ class AgentLedgerSheetService:
                 continue
             
             record_id = row[0]
-            commission_rate_fpx = row[2] if len(row) > 2 else ''
-            commission_rate_ewallet = row[4] if len(row) > 4 else ''
-            volume = row[10] if len(row) > 10 else ''
-            commission_rate = row[11] if len(row) > 11 else ''
-            debit = row[13] if len(row) > 13 else ''
+            commission_rate_fpx = safe_get_value(row, 2)
+            commission_rate_ewallet = safe_get_value(row, 4)
+            volume = safe_get_value(row, 10)
+            commission_rate = safe_get_value(row, 11)
+            debit = safe_get_value(row, 13)
             
             manual_inputs.append({
                 'id': int(record_id),
-                'commission_rate_fpx': to_float(commission_rate_fpx) if commission_rate_fpx else None,
-                'commission_rate_ewallet': to_float(commission_rate_ewallet) if commission_rate_ewallet else None,
-                'volume': to_float(volume) if volume else None,
-                'commission_rate': to_float(commission_rate) if commission_rate else None,
-                'debit': to_float(debit) if debit else None,
+                'commission_rate_fpx': to_float(commission_rate_fpx),
+                'commission_rate_ewallet': to_float(commission_rate_ewallet),
+                'volume': to_float(volume),
+                'commission_rate': to_float(commission_rate),
+                'debit': to_float(debit),
             })
         
         return manual_inputs
@@ -280,7 +263,7 @@ class AgentLedgerSheetService:
             record.debit = input_data['debit']
             
             if record.volume and record.commission_rate:
-                record.commission_amount = round_decimal(record.volume * record.commission_rate)
+                record.commission_amount = round_decimal(record.volume * record.commission_rate / 100)
             else:
                 record.commission_amount = None
             

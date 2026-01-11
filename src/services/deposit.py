@@ -9,7 +9,7 @@ from src.core.models import Deposit, KiraTransaction
 from src.core.logger import get_logger
 from src.services.client import SheetsClient
 from src.services.parameters import ParameterService
-from src.utils.helpers import categorize_channel, round_decimal, to_float, calculate_fee
+from src.utils.helpers import categorize_channel, round_decimal, to_float, calculate_fee, safe_get_value, parse_period, MONTHS
 from src.utils.holiday import load_malaysia_holidays, calculate_settlement_date
 
 logger = get_logger(__name__)
@@ -18,10 +18,6 @@ DEPOSIT_SHEET = 'Deposit'
 DATA_START_ROW = 7
 DATA_RANGE = 'A7:X50'
 
-MONTHS = {
-    'Jan': 1, 'Feb': 2, 'Mar': 3, 'Apr': 4, 'May': 5, 'Jun': 6,
-    'Jul': 7, 'Aug': 8, 'Sep': 9, 'Oct': 10, 'Nov': 11, 'Dec': 12
-}
 
 
 def init_deposit():
@@ -235,7 +231,7 @@ class DepositSheetService:
         if not period_str:
             raise ValueError("Period not selected")
 
-        year, month = cls._parse_period(period_str)
+        year, month = parse_period(period_str)
         if not year or not month:
             raise ValueError("Invalid period format")
         
@@ -273,20 +269,7 @@ class DepositSheetService:
         finally:
             session.close()
     
-    @classmethod
-    def _parse_period(cls, period_str: str) -> tuple:
-        if not period_str:
-            return None, None
-        
-        match = re.match(r'(\w+)\s+(\d{4})', str(period_str))
-        if not match:
-            return None, None
-        
-        month_name = match.group(1)
-        year = int(match.group(2))
-        month = MONTHS.get(month_name)
-        
-        return year, month
+
     
     @classmethod
     def _read_manual_inputs(cls) -> List[Dict[str, Any]]:
@@ -299,23 +282,28 @@ class DepositSheetService:
                 continue
             
             record_id = row[0]
-            fpx_fee_type = row[4].strip() if len(row) > 4 and row[4] else ''
-            fpx_fee_rate = row[5] if len(row) > 5 else ''
-            fpx_settlement_rule = row[8].strip() if len(row) > 8 and row[8] else ''
-            ewallet_fee_type = row[12].strip() if len(row) > 12 and row[12] else ''
-            ewallet_fee_rate = row[13] if len(row) > 13 else ''
-            ewallet_settlement_rule = row[16].strip() if len(row) > 16 and row[16] else ''
-            remarks = row[23].strip() if len(row) > 23 and row[23] else ''
+            fpx_fee_type_val = safe_get_value(row, 4)
+            fpx_fee_type = fpx_fee_type_val.strip() if fpx_fee_type_val else None
+            fpx_fee_rate = safe_get_value(row, 5)
+            fpx_settlement_rule_val = safe_get_value(row, 8)
+            fpx_settlement_rule = fpx_settlement_rule_val.strip() if fpx_settlement_rule_val else None
+            ewallet_fee_type_val = safe_get_value(row, 12)
+            ewallet_fee_type = ewallet_fee_type_val.strip() if ewallet_fee_type_val else None
+            ewallet_fee_rate = safe_get_value(row, 13)
+            ewallet_settlement_rule_val = safe_get_value(row, 16)
+            ewallet_settlement_rule = ewallet_settlement_rule_val.strip() if ewallet_settlement_rule_val else None
+            remarks_val = safe_get_value(row, 23)
+            remarks = remarks_val.strip() if remarks_val else None
             
             manual_inputs.append({
                 'id': int(record_id),
-                'fpx_fee_type': fpx_fee_type if fpx_fee_type else None,
-                'fpx_fee_rate': to_float(fpx_fee_rate) if fpx_fee_rate else None,
-                'fpx_settlement_rule': fpx_settlement_rule if fpx_settlement_rule else None,
-                'ewallet_fee_type': ewallet_fee_type if ewallet_fee_type else None,
-                'ewallet_fee_rate': to_float(ewallet_fee_rate) if ewallet_fee_rate else None,
-                'ewallet_settlement_rule': ewallet_settlement_rule if ewallet_settlement_rule else None,
-                'remarks': remarks if remarks else None,
+                'fpx_fee_type': fpx_fee_type,
+                'fpx_fee_rate': to_float(fpx_fee_rate),
+                'fpx_settlement_rule': fpx_settlement_rule,
+                'ewallet_fee_type': ewallet_fee_type,
+                'ewallet_fee_rate': to_float(ewallet_fee_rate),
+                'ewallet_settlement_rule': ewallet_settlement_rule,
+                'remarks': remarks,
             })
         
         return manual_inputs

@@ -8,7 +8,7 @@ from src.core.database import get_session
 from src.core.models import MerchantLedger, Deposit
 from src.core.logger import get_logger
 from src.services.client import SheetsClient
-from src.utils.helpers import round_decimal, to_float
+from src.utils.helpers import round_decimal, to_float, safe_get_value, parse_period, MONTHS
 
 logger = get_logger(__name__)
 
@@ -16,10 +16,6 @@ MERCHANT_LEDGER_SHEET = 'Merchants Balance & Settlement Ledger'
 DATA_START_ROW = 5
 DATA_RANGE = 'A5:X50'
 
-MONTHS = {
-    'Jan': 1, 'Feb': 2, 'Mar': 3, 'Apr': 4, 'May': 5, 'Jun': 6,
-    'Jul': 7, 'Aug': 8, 'Sep': 9, 'Oct': 10, 'Nov': 11, 'Dec': 12
-}
 
 
 def init_merchant_ledger(merchant: str, year: int, month: int):
@@ -203,7 +199,7 @@ class MerchantLedgerSheetService:
         if not period_str:
             raise ValueError("Period not selected")
 
-        year, month = cls._parse_period(period_str)
+        year, month = parse_period(period_str)
         if not year or not month:
             raise ValueError("Invalid period format")
         
@@ -230,32 +226,12 @@ class MerchantLedgerSheetService:
         finally:
             session.close()
     
-    @classmethod
-    def _parse_period(cls, period_str: str) -> tuple:
-        if not period_str:
-            return None, None
-        
-        match = re.match(r'(\w+)\s+(\d{4})', str(period_str))
-        if not match:
-            return None, None
-        
-        month_name = match.group(1)
-        year = int(match.group(2))
-        month = MONTHS.get(month_name)
-        
-        return year, month
+
     
     @classmethod
     def _read_manual_inputs(cls) -> List[Dict[str, Any]]:
         client = cls.get_client()
         data = client.read_data(MERCHANT_LEDGER_SHEET, DATA_RANGE)
-        
-        def safe_get(row, idx):
-            if idx < len(row):
-                val = row[idx]
-                if val is not None and str(val).strip() != '':
-                    return val
-            return None
         
         manual_inputs = []
         for row in data:
@@ -263,21 +239,21 @@ class MerchantLedgerSheetService:
                 continue
             
             record_id = row[0]
-            settlement_fund = safe_get(row, 13)
-            settlement_charges = safe_get(row, 14)
-            withdrawal_amount = safe_get(row, 15)
-            withdrawal_rate = safe_get(row, 16)
-            topup_payout_pool = safe_get(row, 18)
-            remarks_val = safe_get(row, 23)
+            settlement_fund = safe_get_value(row, 13)
+            settlement_charges = safe_get_value(row, 14)
+            withdrawal_amount = safe_get_value(row, 15)
+            withdrawal_rate = safe_get_value(row, 16)
+            topup_payout_pool = safe_get_value(row, 18)
+            remarks_val = safe_get_value(row, 23)
             remarks = remarks_val.strip() if remarks_val else None
             
             manual_inputs.append({
                 'id': int(record_id),
-                'settlement_fund': to_float(settlement_fund) if settlement_fund else None,
-                'settlement_charges': to_float(settlement_charges) if settlement_charges else None,
-                'withdrawal_amount': to_float(withdrawal_amount) if withdrawal_amount else None,
-                'withdrawal_rate': to_float(withdrawal_rate) if withdrawal_rate else None,
-                'topup_payout_pool': to_float(topup_payout_pool) if topup_payout_pool else None,
+                'settlement_fund': to_float(settlement_fund),
+                'settlement_charges': to_float(settlement_charges),
+                'withdrawal_amount': to_float(withdrawal_amount),
+                'withdrawal_rate': to_float(withdrawal_rate),
+                'topup_payout_pool': to_float(topup_payout_pool),
                 'remarks': remarks,
             })
         
