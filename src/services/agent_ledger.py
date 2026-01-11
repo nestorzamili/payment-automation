@@ -412,7 +412,7 @@ class AgentLedgerSheetService:
                 rec.get('available_total') if rec.get('available_total') is not None else 0,
                 rec.get('volume') if rec.get('volume') is not None else '',
                 rec.get('commission_rate') if rec.get('commission_rate') is not None else '',
-                rec.get('commission_amount') if rec.get('commission_amount') is not None else '',
+                rec.get('commission_amount') if rec.get('commission_amount') is not None else 0,
                 rec.get('debit') if rec.get('debit') is not None else '',
                 rec.get('balance') if rec.get('balance') is not None else 0,
                 rec.get('accumulative_balance') if rec.get('accumulative_balance') is not None else 0,

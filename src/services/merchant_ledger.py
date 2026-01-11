@@ -298,26 +298,18 @@ class MerchantLedgerSheetService:
             if not record:
                 continue
             
-            if input_data['settlement_fund'] is not None:
-                record.settlement_fund = input_data['settlement_fund']
-            
-            if input_data['settlement_charges'] is not None:
-                record.settlement_charges = input_data['settlement_charges']
-            
-            if input_data['withdrawal_amount'] is not None:
-                record.withdrawal_amount = input_data['withdrawal_amount']
-            
-            if input_data['withdrawal_rate'] is not None:
-                record.withdrawal_rate = input_data['withdrawal_rate']
+            record.settlement_fund = input_data['settlement_fund']
+            record.settlement_charges = input_data['settlement_charges']
+            record.withdrawal_amount = input_data['withdrawal_amount']
+            record.withdrawal_rate = input_data['withdrawal_rate']
             
             if record.withdrawal_amount and record.withdrawal_rate:
                 record.withdrawal_charges = round_decimal(record.withdrawal_amount * record.withdrawal_rate / 100)
+            else:
+                record.withdrawal_charges = None
             
-            if input_data['topup_payout_pool'] is not None:
-                record.topup_payout_pool = input_data['topup_payout_pool']
-            
-            if input_data['remarks'] is not None:
-                record.remarks = input_data['remarks']
+            record.topup_payout_pool = input_data['topup_payout_pool']
+            record.remarks = input_data['remarks']
             
             count += 1
         
