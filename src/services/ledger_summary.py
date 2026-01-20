@@ -2,7 +2,7 @@ from typing import Dict, Any, List, Optional
 from sqlalchemy import func
 
 from src.core.database import get_session
-from src.core.models import MerchantLedger, AgentLedger
+from src.core.models import MerchantLedger, AgentLedger, Deposit
 from src.core.logger import get_logger
 from src.services.client import SheetsClient
 from src.utils.helpers import MONTHS, round_decimal, to_float
@@ -75,14 +75,17 @@ class SummarySheetService:
         date_prefix = f"{year}-"
         
         results = session.query(
-            MerchantLedger.merchant,
-            func.substr(MerchantLedger.transaction_date, 6, 2).label('month'),
-            func.sum(func.coalesce(MerchantLedger.available_total, 0)).label('total')
+            Deposit.merchant,
+            func.substr(Deposit.transaction_date, 6, 2).label('month'),
+            func.sum(
+                func.coalesce(Deposit.fpx_amount, 0) +
+                func.coalesce(Deposit.ewallet_amount, 0)
+            ).label('total')
         ).filter(
-            MerchantLedger.transaction_date.like(f"{date_prefix}%")
+            Deposit.transaction_date.like(f"{date_prefix}%")
         ).group_by(
-            MerchantLedger.merchant,
-            func.substr(MerchantLedger.transaction_date, 6, 2)
+            Deposit.merchant,
+            func.substr(Deposit.transaction_date, 6, 2)
         ).all()
         
         return cls._format_results(results)
