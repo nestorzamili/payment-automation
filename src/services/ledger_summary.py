@@ -109,17 +109,31 @@ class SummarySheetService:
     
     @classmethod
     def _get_payout_pool_summary(cls, session, year: int) -> Dict[str, Any]:
+        from sqlalchemy.orm import aliased
+        
         date_prefix = f"{year}-"
         
-        results = session.query(
-            MerchantLedger.merchant,
+        last_date_subquery = session.query(
+            MerchantLedger.merchant.label('merchant'),
             func.substr(MerchantLedger.transaction_date, 6, 2).label('month'),
-            func.max(MerchantLedger.payout_pool_balance).label('total')
+            func.max(MerchantLedger.transaction_date).label('last_date')
         ).filter(
             MerchantLedger.transaction_date.like(f"{date_prefix}%")
         ).group_by(
             MerchantLedger.merchant,
             func.substr(MerchantLedger.transaction_date, 6, 2)
+        ).subquery('last_dates')
+        
+        results = session.query(
+            MerchantLedger.merchant,
+            last_date_subquery.c.month.label('month'),
+            MerchantLedger.payout_pool_balance.label('total')
+        ).filter(
+            MerchantLedger.transaction_date.like(f"{date_prefix}%")
+        ).join(
+            last_date_subquery,
+            (MerchantLedger.merchant == last_date_subquery.c.merchant) &
+            (MerchantLedger.transaction_date == last_date_subquery.c.last_date)
         ).all()
         
         return cls._format_results(results)

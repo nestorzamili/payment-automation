@@ -106,13 +106,8 @@ def _recalculate_balances(session, merchant: str, year: int, month: int,
         rate_fpx = row.commission_rate_fpx or 0
         rate_ewallet = row.commission_rate_ewallet or 0
 
-        avail_fpx = 0
-        if date in fpx_by_settlement and rate_fpx:
-            avail_fpx = round_decimal(fpx_by_settlement[date] * rate_fpx / 100) or 0
-
-        avail_ewallet = 0
-        if date in ewallet_by_settlement and rate_ewallet:
-            avail_ewallet = round_decimal(ewallet_by_settlement[date] * rate_ewallet / 100) or 0
+        avail_fpx = fpx_by_settlement.get(date, 0)
+        avail_ewallet = ewallet_by_settlement.get(date, 0)
 
         available_total = avail_fpx + avail_ewallet
         
@@ -320,13 +315,8 @@ class AgentLedgerSheetService:
                 if fpx_commission is not None or ewallet_commission is not None:
                     gross = round_decimal((fpx_commission or 0) + (ewallet_commission or 0))
                 
-                available_fpx = 0
-                if date in fpx_by_settlement and rate_fpx:
-                    available_fpx = round_decimal(fpx_by_settlement[date] * rate_fpx / 100) or 0
-
-                available_ewallet = 0
-                if date in ewallet_by_settlement and rate_ewallet:
-                    available_ewallet = round_decimal(ewallet_by_settlement[date] * rate_ewallet / 100) or 0
+                available_fpx = fpx_by_settlement.get(date, 0)
+                available_ewallet = ewallet_by_settlement.get(date, 0)
                 
                 result.append({
                     'id': ledger.id if ledger else '',
@@ -351,13 +341,8 @@ class AgentLedgerSheetService:
                 rate_fpx = ledger.commission_rate_fpx
                 rate_ewallet = ledger.commission_rate_ewallet
                 
-                available_fpx = 0
-                if date in fpx_by_settlement and rate_fpx:
-                    available_fpx = round_decimal(fpx_by_settlement[date] * rate_fpx / 100) or 0
-
-                available_ewallet = 0
-                if date in ewallet_by_settlement and rate_ewallet:
-                    available_ewallet = round_decimal(ewallet_by_settlement[date] * rate_ewallet / 100) or 0
+                available_fpx = fpx_by_settlement.get(date, 0)
+                available_ewallet = ewallet_by_settlement.get(date, 0)
                 
                 result.append({
                     'id': ledger.id,
