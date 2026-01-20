@@ -2,7 +2,7 @@ from typing import Dict, Any, List, Optional
 from sqlalchemy import func
 
 from src.core.database import get_session
-from src.core.models import MerchantLedger, KiraTransaction, AgentLedger, Deposit
+from src.core.models import MerchantLedger, AgentLedger
 from src.core.logger import get_logger
 from src.services.client import SheetsClient
 from src.utils.helpers import MONTHS, round_decimal, to_float
@@ -75,14 +75,14 @@ class SummarySheetService:
         date_prefix = f"{year}-"
         
         results = session.query(
-            KiraTransaction.merchant,
-            func.substr(KiraTransaction.transaction_date, 6, 2).label('month'),
-            func.sum(func.coalesce(KiraTransaction.amount, 0)).label('total')
+            MerchantLedger.merchant,
+            func.substr(MerchantLedger.transaction_date, 6, 2).label('month'),
+            func.sum(func.coalesce(MerchantLedger.available_total, 0)).label('total')
         ).filter(
-            KiraTransaction.transaction_date.like(f"{date_prefix}%")
+            MerchantLedger.transaction_date.like(f"{date_prefix}%")
         ).group_by(
-            KiraTransaction.merchant,
-            func.substr(KiraTransaction.transaction_date, 6, 2)
+            MerchantLedger.merchant,
+            func.substr(MerchantLedger.transaction_date, 6, 2)
         ).all()
         
         return cls._format_results(results)
@@ -91,38 +91,18 @@ class SummarySheetService:
     def _get_agents_summary(cls, session, year: int) -> Dict[str, Any]:
         date_prefix = f"{year}-"
         
-        ledgers = session.query(AgentLedger).filter(
+        results = session.query(
+            AgentLedger.merchant,
+            func.substr(AgentLedger.transaction_date, 6, 2).label('month'),
+            func.sum(func.coalesce(AgentLedger.available_total, 0)).label('total')
+        ).filter(
             AgentLedger.transaction_date.like(f"{date_prefix}%")
+        ).group_by(
+            AgentLedger.merchant,
+            func.substr(AgentLedger.transaction_date, 6, 2)
         ).all()
         
-        deposits = session.query(Deposit).filter(
-            Deposit.transaction_date.like(f"{date_prefix}%")
-        ).all()
-        
-        deposit_map = {(d.merchant, d.transaction_date): d for d in deposits}
-        
-        results = []
-        for ledger in ledgers:
-            deposit = deposit_map.get((ledger.merchant, ledger.transaction_date))
-            
-            available_total = 0
-            if deposit:
-                rate_fpx = ledger.commission_rate_fpx or 0
-                rate_ewallet = ledger.commission_rate_ewallet or 0
-                avail_fpx = (deposit.fpx_amount or 0) * rate_fpx / 1000 if rate_fpx else 0
-                avail_ewallet = (deposit.ewallet_amount or 0) * rate_ewallet / 1000 if rate_ewallet else 0
-                available_total = avail_fpx + avail_ewallet
-            
-            available_total += (ledger.commission_amount or 0)
-            
-            month = ledger.transaction_date[5:7]
-            results.append({
-                'merchant': ledger.merchant,
-                'month': month,
-                'total': available_total
-            })
-        
-        return cls._format_agent_results(results)
+        return cls._format_results(results)
     
     @classmethod
     def _get_payout_pool_summary(cls, session, year: int) -> Dict[str, Any]:
@@ -160,36 +140,6 @@ class SummarySheetService:
                 data[merchant]['total'] = 0
             
             data[merchant][month] = round_decimal(total)
-            data[merchant]['total'] = round_decimal(data[merchant]['total'] + total)
-            
-            monthly_totals[month] = round_decimal(monthly_totals[month] + total)
-            monthly_totals['grand_total'] = round_decimal(monthly_totals['grand_total'] + total)
-        
-        return {
-            'merchants': sorted(list(merchants)),
-            'data': data,
-            'monthly_totals': monthly_totals
-        }
-    
-    @classmethod
-    def _format_agent_results(cls, results) -> Dict[str, Any]:
-        merchants = set()
-        data = {}
-        monthly_totals = {str(m): 0 for m in range(1, 13)}
-        monthly_totals['grand_total'] = 0
-        
-        for row in results:
-            merchant = row['merchant']
-            month = str(int(row['month']))
-            total = to_float(row['total']) or 0
-            
-            merchants.add(merchant)
-            
-            if merchant not in data:
-                data[merchant] = {str(m): 0 for m in range(1, 13)}
-                data[merchant]['total'] = 0
-            
-            data[merchant][month] = round_decimal(data[merchant][month] + total)
             data[merchant]['total'] = round_decimal(data[merchant]['total'] + total)
             
             monthly_totals[month] = round_decimal(monthly_totals[month] + total)
