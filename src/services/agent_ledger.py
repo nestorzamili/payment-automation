@@ -115,6 +115,11 @@ def _recalculate_balances(session, merchant: str, year: int, month: int,
             avail_ewallet = round_decimal(ewallet_by_settlement[date] * rate_ewallet / 100) or 0
 
         available_total = avail_fpx + avail_ewallet
+        
+        row.available_fpx = avail_fpx if avail_fpx > 0 else None
+        row.available_ewallet = avail_ewallet if avail_ewallet > 0 else None
+        row.available_total = round_decimal(available_total) if available_total > 0 else None
+        
         commission_amount = row.commission_amount or 0
         debit = row.debit or 0
 

@@ -95,7 +95,17 @@ def _recalculate_balances(session, merchant: str, year: int, month: int):
 
     for row in rows:
         deposit = deposit_map.get(row.transaction_date)
-        available_total = deposit.available_total if deposit else 0
+        
+        if deposit:
+            row.available_fpx = deposit.available_fpx
+            row.available_ewallet = deposit.available_ewallet
+            row.available_total = deposit.available_total
+        else:
+            row.available_fpx = None
+            row.available_ewallet = None
+            row.available_total = None
+        
+        available_total = row.available_total or 0
 
         has_payout_activity = (
             row.withdrawal_amount is not None
