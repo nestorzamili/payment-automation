@@ -1,22 +1,17 @@
 from typing import Dict, Any, List, Optional
 from sqlalchemy import func
-import re
 
 from src.core.database import get_session
 from src.core.models import MerchantLedger, KiraTransaction, AgentLedger, Deposit
 from src.core.logger import get_logger
 from src.services.client import SheetsClient
+from src.utils.helpers import MONTHS, round_decimal, to_float
 
 logger = get_logger(__name__)
 
 SUMMARY_SHEET = 'Summary'
 DATA_START_ROW = 5
 DATA_RANGE = 'A5:N200'
-
-MONTHS = {
-    'Jan': 1, 'Feb': 2, 'Mar': 3, 'Apr': 4, 'May': 5, 'Jun': 6,
-    'Jul': 7, 'Aug': 8, 'Sep': 9, 'Oct': 10, 'Nov': 11, 'Dec': 12
-}
 
 VIEW_TYPE_MAP = {
     'Merchants': 'merchants',
@@ -156,7 +151,7 @@ class SummarySheetService:
         for row in results:
             merchant = row.merchant
             month = str(int(row.month))
-            total = float(row.total) if row.total else 0
+            total = to_float(row.total) or 0
             
             merchants.add(merchant)
             
@@ -164,11 +159,11 @@ class SummarySheetService:
                 data[merchant] = {str(m): 0 for m in range(1, 13)}
                 data[merchant]['total'] = 0
             
-            data[merchant][month] = round(total, 2)
-            data[merchant]['total'] = round(data[merchant]['total'] + total, 2)
+            data[merchant][month] = round_decimal(total)
+            data[merchant]['total'] = round_decimal(data[merchant]['total'] + total)
             
-            monthly_totals[month] = round(monthly_totals[month] + total, 2)
-            monthly_totals['grand_total'] = round(monthly_totals['grand_total'] + total, 2)
+            monthly_totals[month] = round_decimal(monthly_totals[month] + total)
+            monthly_totals['grand_total'] = round_decimal(monthly_totals['grand_total'] + total)
         
         return {
             'merchants': sorted(list(merchants)),
@@ -186,7 +181,7 @@ class SummarySheetService:
         for row in results:
             merchant = row['merchant']
             month = str(int(row['month']))
-            total = float(row['total']) if row['total'] else 0
+            total = to_float(row['total']) or 0
             
             merchants.add(merchant)
             
@@ -194,11 +189,11 @@ class SummarySheetService:
                 data[merchant] = {str(m): 0 for m in range(1, 13)}
                 data[merchant]['total'] = 0
             
-            data[merchant][month] = round(data[merchant][month] + total, 2)
-            data[merchant]['total'] = round(data[merchant]['total'] + total, 2)
+            data[merchant][month] = round_decimal(data[merchant][month] + total)
+            data[merchant]['total'] = round_decimal(data[merchant]['total'] + total)
             
-            monthly_totals[month] = round(monthly_totals[month] + total, 2)
-            monthly_totals['grand_total'] = round(monthly_totals['grand_total'] + total, 2)
+            monthly_totals[month] = round_decimal(monthly_totals[month] + total)
+            monthly_totals['grand_total'] = round_decimal(monthly_totals['grand_total'] + total)
         
         return {
             'merchants': sorted(list(merchants)),
