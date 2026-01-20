@@ -49,22 +49,30 @@ def init_agent_ledger(merchant: str, year: int, month: int):
         session.close()
 
 
-def _aggregate_by_settlement(deposits, date_prefix: str):
+def _aggregate_by_settlement(deposits, date_prefix: str, ledger_map: dict):
     fpx_by_settlement = {}
     ewallet_by_settlement = {}
 
     for dep in deposits:
-        if dep.fpx_settlement_date and dep.fpx_amount:
+        tx_date = dep.transaction_date
+        ledger = ledger_map.get(tx_date)
+        
+        rate_fpx = ledger.commission_rate_fpx if ledger else 0
+        rate_ewallet = ledger.commission_rate_ewallet if ledger else 0
+
+        if dep.fpx_settlement_date and dep.fpx_amount and rate_fpx:
             if dep.fpx_settlement_date.startswith(date_prefix):
+                fpx_commission = round_decimal((dep.fpx_amount or 0) * rate_fpx / 100)
                 if dep.fpx_settlement_date not in fpx_by_settlement:
                     fpx_by_settlement[dep.fpx_settlement_date] = 0
-                fpx_by_settlement[dep.fpx_settlement_date] += dep.fpx_amount or 0
+                fpx_by_settlement[dep.fpx_settlement_date] += fpx_commission or 0
 
-        if dep.ewallet_settlement_date and dep.ewallet_amount:
+        if dep.ewallet_settlement_date and dep.ewallet_amount and rate_ewallet:
             if dep.ewallet_settlement_date.startswith(date_prefix):
+                ewallet_commission = round_decimal((dep.ewallet_amount or 0) * rate_ewallet / 100)
                 if dep.ewallet_settlement_date not in ewallet_by_settlement:
                     ewallet_by_settlement[dep.ewallet_settlement_date] = 0
-                ewallet_by_settlement[dep.ewallet_settlement_date] += dep.ewallet_amount or 0
+                ewallet_by_settlement[dep.ewallet_settlement_date] += ewallet_commission or 0
 
     return fpx_by_settlement, ewallet_by_settlement
 
@@ -176,8 +184,13 @@ class AgentLedgerSheetService:
 
             prev_deposits = cls._get_prev_month_deposits(session, merchant, year, month)
             all_deposits = list(prev_deposits) + list(deposits)
+            
+            ledgers = session.query(AgentLedger).filter(
+                AgentLedger.merchant == merchant
+            ).all()
+            ledger_map = {lg.transaction_date: lg for lg in ledgers}
 
-            fpx_by_settlement, ewallet_by_settlement = _aggregate_by_settlement(all_deposits, date_prefix)
+            fpx_by_settlement, ewallet_by_settlement = _aggregate_by_settlement(all_deposits, date_prefix, ledger_map)
 
             _recalculate_balances(session, merchant, year, month, fpx_by_settlement, ewallet_by_settlement)
             session.commit()
