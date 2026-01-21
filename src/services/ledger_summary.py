@@ -97,7 +97,10 @@ class SummarySheetService:
         results = session.query(
             AgentLedger.merchant,
             func.substr(AgentLedger.transaction_date, 6, 2).label('month'),
-            func.sum(func.coalesce(AgentLedger.available_total, 0)).label('total')
+            func.sum(
+                func.coalesce(AgentLedger.available_total, 0) +
+                func.coalesce(AgentLedger.commission_amount, 0)
+            ).label('total')
         ).filter(
             AgentLedger.transaction_date.like(f"{date_prefix}%")
         ).group_by(
