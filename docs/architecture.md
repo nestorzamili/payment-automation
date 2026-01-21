@@ -150,8 +150,18 @@ erDiagram
         int id PK
         string merchant
         string transaction_date
+        float settlement_fund
+        float settlement_charges
+        float withdrawal_amount
+        float withdrawal_rate
+        float withdrawal_charges
+        float topup_payout_pool
+        float available_fpx
+        float available_ewallet
+        float available_total
         float payout_pool_balance
         float available_balance
+        float total_balance
     }
     
     AgentLedger {
@@ -159,7 +169,16 @@ erDiagram
         string merchant
         string transaction_date
         float commission_rate_fpx
+        float commission_rate_ewallet
+        float available_fpx
+        float available_ewallet
+        float available_total
+        float volume
+        float commission_rate
+        float commission_amount
+        float debit
         float balance
+        float accumulative_balance
     }
 ```
 

@@ -148,39 +148,61 @@ flowchart TB
 ```mermaid
 flowchart LR
     FPX["FPX Amount"]
-    RATE_FPX["FPX Rate ‰"]
+    RATE_FPX["FPX Rate %"]
     EW["E-Wallet Amount"]
-    RATE_EW["E-Wallet Rate ‰"]
+    RATE_EW["E-Wallet Rate %"]
     GROSS["Gross Commission"]
 
-    FPX -->|"× rate / 1000"| GROSS
+    FPX -->|"× rate / 100"| GROSS
     RATE_FPX --> GROSS
-    EW -->|"× rate / 1000"| GROSS
+    EW -->|"× rate / 100"| GROSS
     RATE_EW --> GROSS
 ```
 
 **Formula:**
 ```
-fpx_commission = fpx_amount × (rate_fpx / 1000)
-ewallet_commission = ewallet_amount × (rate_ewallet / 1000)
+fpx_commission = fpx_amount × (rate_fpx / 100)
+ewallet_commission = ewallet_amount × (rate_ewallet / 100)
 gross = fpx_commission + ewallet_commission
 ```
 
 ### Available Commission (Settlement-based)
 
+Available Commission is calculated by:
+1. Taking commission from each transaction date (using rate at transaction date)
+2. Aggregating those commissions by their settlement date
+
 ```mermaid
 flowchart TB
-    DEP["Deposits settling on this date"]
-    SUM_FPX["Sum FPX Amount"]
-    SUM_EW["Sum E-Wallet Amount"]
-    RATE["Commission Rates"]
-    AVAIL["Available Total"]
+    subgraph TxDate["📅 Transaction Date"]
+        FPX["FPX Amount"]
+        EW["E-Wallet Amount"]
+        RATE["Commission Rate<br/>(at tx date)"]
+        COMM["Commission"]
+    end
 
-    DEP --> SUM_FPX
-    DEP --> SUM_EW
-    SUM_FPX -->|"× rate / 1000"| AVAIL
-    SUM_EW -->|"× rate / 1000"| AVAIL
-    RATE --> AVAIL
+    subgraph SettleDate["📅 Settlement Date"]
+        AGG["Aggregate Commission"]
+        AVAIL["Available Total"]
+    end
+
+    FPX -->|"× rate / 100"| COMM
+    EW -->|"× rate / 100"| COMM
+    RATE --> COMM
+    COMM -->|"group by settlement date"| AGG
+    AGG --> AVAIL
+```
+
+**Formula:**
+```
+For each deposit on transaction_date:
+  fpx_commission = fpx_amount × (rate_fpx_at_tx_date / 100)
+  ewallet_commission = ewallet_amount × (rate_ewallet_at_tx_date / 100)
+
+Then aggregate by settlement_date:
+  available_fpx = Σ fpx_commission (where fpx_settlement_date = current_date)
+  available_ewallet = Σ ewallet_commission (where ewallet_settlement_date = current_date)
+  available_total = available_fpx + available_ewallet
 ```
 
 ### Volume Commission
@@ -250,15 +272,18 @@ balance = prev_balance + available_total + commission_amount
 |--------|-------|----------|
 | A | ID | ❌ |
 | B | Date | ❌ |
-| C | FPX Rate (‰) | ✅ |
+| C | FPX Rate (%) | ✅ |
 | D | FPX Commission | ❌ (calculated) |
-| E | E-Wallet Rate (‰) | ✅ |
+| E | E-Wallet Rate (%) | ✅ |
 | F | E-Wallet Commission | ❌ (calculated) |
 | G | Gross Amount | ❌ (calculated) |
-| H | Available FPX | ❌ |
-| I | Available E-Wallet | ❌ |
-| J | Available Total | ❌ |
+| H | Available FPX | ❌ (calculated from tx date) |
+| I | Available E-Wallet | ❌ (calculated from tx date) |
+| J | Available Total | ❌ (calculated) |
 | K | Volume | ✅ |
 | L | Commission Rate | ✅ |
 | M | Commission Amount | ❌ (calculated) |
-| N | Balance | ❌ (calculated) |
+| N | Debit | ✅ |
+| O | Balance | ❌ (calculated) |
+| P | Accumulative Balance | ❌ (calculated) |
+| Q | Updated At | ❌ |

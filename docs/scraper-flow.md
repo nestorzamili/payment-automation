@@ -35,6 +35,11 @@ classDiagram
         +download_files(page, download_dir, from_date, to_date)
     }
 
+    class FiuuAPIClient {
+        +fetch_transactions(from_date, to_date)
+        +save_to_csv(transactions)
+    }
+
     BaseScraper <|-- AxaiScraper
     BaseScraper <|-- KiraScraper
     BaseScraper <|-- M1Scraper

@@ -143,12 +143,14 @@ sequenceDiagram
 | F | MDR | ❌ |
 | G | PG Amount | ❌ |
 | H | Volume | ❌ |
-| I | Fee Type | ✅ Dropdown |
-| J | Fee Rate | ✅ |
-| K | Fees | ❌ (calculated) |
-| L | Settlement Amount | ❌ (calculated) |
-| M | Daily Variance | ❌ |
-| N | Cumulative Variance | ❌ |
+| I | Settlement Rule | ✅ Dropdown |
+| J | Settlement Date | ❌ (calculated) |
+| K | Fee Type | ✅ Dropdown |
+| L | Fee Rate | ✅ |
+| M | Fees | ❌ (calculated) |
+| N | Settlement Amount | ❌ (calculated) |
+| O | Daily Variance | ❌ |
+| P | Cumulative Variance | ❌ |
 
 ## ⚠️ Variance Alert
 

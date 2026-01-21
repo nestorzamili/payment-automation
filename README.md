@@ -4,7 +4,7 @@ Automated payment reconciliation system that scrapes transaction data from multi
 
 ##  Features
 
-- **Multi-Platform Scraping** - AXAI, Kira, M1 payment portals
+- **Multi-Platform Scraping** - AXAI, Kira, M1, Fiuu payment portals
 - **Automated Parsing** - Transaction data extraction and normalization
 - **Reconciliation** - Kira vs PG variance calculation
 - **Settlement Tracking** - FPX and E-Wallet settlement dates with holiday awareness
@@ -71,6 +71,8 @@ python server.py
 | `/api/agent-ledger/sync` | POST | Sync Agent Ledger |
 | `/api/summary/sync` | POST | Sync Summary sheet |
 | `/api/parameter/sync` | POST | Sync Parameters |
+| `/api/accounts` | GET/POST | List or create accounts |
+| `/api/accounts/:id` | PUT/DELETE | Update or delete account |
 
 ## Google Sheets
 
@@ -82,6 +84,7 @@ python server.py
 | **Agents Ledger** | Agent commission & balance ledger |
 | **Summary** | Yearly summary by merchant/agent |
 | **Parameter** | Add-on holidays and configuration |
+| **Accounts** | Payment platform account management |
 | **Jobs** | Job execution status tracking |
 
 ## License
