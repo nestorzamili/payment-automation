@@ -6,25 +6,27 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     novnc \
     websockify \
     fluxbox \
-    supervisor \
-    && rm -rf /var/lib/apt/lists/*
-
-RUN mkdir -p /root/.vnc
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
 
 WORKDIR /app
 
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt \
+    && rm -rf ~/.cache/pip
 
-COPY supervisord.conf /etc/supervisor/conf.d/supervisord.conf
+COPY docker-entrypoint.sh /docker-entrypoint.sh
+RUN chmod +x /docker-entrypoint.sh
 
-COPY . .
+COPY src/ ./src/
+COPY server.py .
 
-RUN mkdir -p /app/logs
+RUN mkdir -p /app/logs /app/data /app/sessions
 
-ENV DISPLAY=:99
-ENV PYTHONUNBUFFERED=1
+ENV DISPLAY=:99 \
+    PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1
 
 EXPOSE 5000 6080
 
-CMD ["/usr/bin/supervisord", "-c", "/etc/supervisor/conf.d/supervisord.conf"]
+ENTRYPOINT ["/docker-entrypoint.sh"]
