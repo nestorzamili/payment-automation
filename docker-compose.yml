@@ -21,7 +21,7 @@ services:
       - "127.0.0.1:8080:8080"
     environment:
       - NOVNC_DEFAULT_VIEW_ONLY=false
-    command: --addr :8080 --host payment-automation --port 5900
+    command: --addr :8080 --host app --port 5900
     depends_on:
       - app
     restart: unless-stopped
