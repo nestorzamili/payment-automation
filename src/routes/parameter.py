@@ -6,7 +6,7 @@ from src.utils.response import jsend_success, jsend_error
 
 logger = get_logger(__name__)
 
-bp = Blueprint('parameter', __name__)
+bp = Blueprint('parameter', __name__, url_prefix='/api')
 
 
 @bp.route('/parameter', methods=['GET'])

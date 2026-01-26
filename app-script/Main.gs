@@ -1,12 +1,14 @@
 const CONFIG = {
   BASE_URL: 'http://YOUR_VM_IP:5000',
   API_KEY: 'api-key',
+  VNC_URL: 'http://YOUR_VM_IP:6081/vnc.html',
   MERCHANT_LEDGER: 'Merchants Balance & Settlement Ledger',
   AGENT_LEDGER: 'Agents Balance & Settlement Ledger',
   KIRA_PG_SHEET: 'Kira PG',
   DEPOSIT_SHEET: 'Deposit',
   SUMMARY_SHEET: 'Summary',
   ACCOUNTS_SHEET: 'Accounts',
+  JOBS_SHEET: 'Jobs',
 };
 
 function syncSheet_(sheetConfigKey, endpoint, label) {
@@ -47,23 +49,23 @@ function syncSheet_(sheetConfigKey, endpoint, label) {
 }
 
 function updateKiraPG() {
-  syncSheet_('KIRA_PG_SHEET', 'kira-pg', 'Kira PG');
+  syncSheet_('KIRA_PG_SHEET', 'api/sheets/kira-pg', 'Kira PG');
 }
 
 function updateDeposit() {
-  syncSheet_('DEPOSIT_SHEET', 'deposit', 'Deposit');
+  syncSheet_('DEPOSIT_SHEET', 'api/sheets/deposit', 'Deposit');
 }
 
 function updateMerchantLedger() {
-  syncSheet_('MERCHANT_LEDGER', 'merchant-ledger', 'Merchant Ledger');
+  syncSheet_('MERCHANT_LEDGER', 'api/ledger/merchant', 'Merchant Ledger');
 }
 
 function updateAgentLedger() {
-  syncSheet_('AGENT_LEDGER', 'agent-ledger', 'Agent Ledger');
+  syncSheet_('AGENT_LEDGER', 'api/ledger/agent', 'Agent Ledger');
 }
 
 function updateSummary() {
-  syncSheet_('SUMMARY_SHEET', 'summary', 'Summary');
+  syncSheet_('SUMMARY_SHEET', 'api/sheets/summary', 'Summary');
 }
 
 function updateParameter() {
@@ -75,7 +77,7 @@ function updateParameter() {
   };
 
   try {
-    const response = UrlFetchApp.fetch(`${CONFIG.BASE_URL}/parameter`, options);
+    const response = UrlFetchApp.fetch(`${CONFIG.BASE_URL}/api/parameter`, options);
     const code = response.getResponseCode();
 
     if (code >= 500) {
@@ -86,7 +88,6 @@ function updateParameter() {
     const result = JSON.parse(response.getContentText());
 
     if (result.status === 'success') {
-      SpreadsheetApp.getUi().alert('Parameters updated successfully');
     } else {
       SpreadsheetApp.getUi().alert('Error: ' + (result.message || 'Unknown error'));
     }
@@ -112,7 +113,7 @@ function syncData() {
   };
 
   try {
-    const response = UrlFetchApp.fetch(`${CONFIG.BASE_URL}/sync-data`, options);
+    const response = UrlFetchApp.fetch(`${CONFIG.BASE_URL}/api/sync`, options);
     const code = response.getResponseCode();
 
     if (code >= 500) {
@@ -128,7 +129,7 @@ function syncData() {
     const result = JSON.parse(response.getContentText());
 
     if (result.status === 'success') {
-      SpreadsheetApp.getUi().alert('Sync started. Jobs sheet will update automatically.');
+      showVncWatcher();
     } else {
       SpreadsheetApp.getUi().alert('Error: ' + (result.message || 'Unknown error'));
     }
@@ -330,3 +331,162 @@ function saveAccount(data) {
   }
 }
 
+
+function setupVncTrigger() {
+  ScriptApp.getProjectTriggers().forEach(trigger => {
+    if (trigger.getHandlerFunction() === 'onSheetChange') {
+      ScriptApp.deleteTrigger(trigger);
+    }
+  });
+  
+  ScriptApp.newTrigger('onSheetChange')
+    .forSpreadsheet(SpreadsheetApp.getActive())
+    .onChange()
+    .create();
+}
+
+function onSheetChange(e) {
+  if (!e || e.changeType !== 'EDIT') return;
+  
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(CONFIG.JOBS_SHEET);
+  if (!sheet) return;
+  
+  const data = sheet.getRange('C4:G100').getValues();
+  
+  const waitingJobs = [];
+  let hasActiveAxaiJobs = false;
+  
+  for (let i = 0; i < data.length; i++) {
+    const platform = data[i][0];
+    const account = data[i][1];
+    const status = data[i][4];
+    
+    if (!status || platform !== 'axai') continue;
+    
+    if (status === 'waiting_manual_login') {
+      waitingJobs.push(account);
+    }
+    if (['pending', 'running', 'waiting_manual_login'].includes(status)) {
+      hasActiveAxaiJobs = true;
+    }
+  }
+  
+  const props = PropertiesService.getScriptProperties();
+  
+  if (waitingJobs.length > 0) {
+    props.setProperty('PENDING_VNC', JSON.stringify({
+      jobs: waitingJobs,
+      timestamp: new Date().toISOString()
+    }));
+  } else {
+    props.deleteProperty('PENDING_VNC');
+  }
+  
+  props.setProperty('SYNC_ACTIVE', hasActiveAxaiJobs ? 'true' : 'false');
+}
+
+function showVncWatcher() {
+  const html = HtmlService.createHtmlOutput(getVncWatcherHtml_())
+    .setTitle('VNC Watcher')
+    .setWidth(280);
+  SpreadsheetApp.getUi().showSidebar(html);
+}
+
+function checkPendingVnc() {
+  const pending = PropertiesService.getScriptProperties().getProperty('PENDING_VNC');
+  if (!pending) return null;
+  return JSON.parse(pending);
+}
+
+function clearPendingVnc() {
+  PropertiesService.getScriptProperties().deleteProperty('PENDING_VNC');
+}
+
+function isSyncActive() {
+  return PropertiesService.getScriptProperties().getProperty('SYNC_ACTIVE') === 'true';
+}
+
+function getVncWatcherHtml_() {
+  return `
+<!DOCTYPE html>
+<html>
+<head>
+  <style>
+    body { font-family: Arial, sans-serif; padding: 12px; margin: 0; }
+    h3 { margin: 0 0 12px 0; font-size: 16px; }
+    .status { padding: 10px; border-radius: 6px; margin: 8px 0; text-align: center; font-size: 13px; }
+    .watching { background: #e8f5e9; color: #2e7d32; }
+    .alert { background: #fff3e0; color: #e65100; animation: pulse 1s infinite; }
+    @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.7; } }
+    .btn { width: 100%; padding: 10px; margin: 5px 0; border: none; border-radius: 5px; cursor: pointer; font-size: 13px; }
+    .btn-primary { background: #4285f4; color: white; }
+    .btn-primary:hover { background: #3367d6; }
+    .jobs { font-size: 11px; color: #666; margin-top: 5px; word-break: break-word; }
+    #lastCheck { font-size: 10px; color: #999; margin-top: 12px; }
+  </style>
+</head>
+<body>
+  
+  <div id="status" class="status watching">
+    ✅ Monitoring...
+  </div>
+  
+  <div id="jobs" class="jobs" style="display:none;"></div>
+  
+  <button id="openBtn" class="btn btn-primary" style="display:none;" onclick="openVnc()">
+    🖥️ Open noVNC
+  </button>
+  
+  <p id="lastCheck">Last check: --</p>
+  
+  <script>
+    const VNC_URL = '${CONFIG.VNC_URL}';
+    let hasNotified = false;
+    
+    function check() {
+      google.script.run
+        .withSuccessHandler(function(data) {
+          document.getElementById('lastCheck').textContent = 'Last check: ' + new Date().toLocaleTimeString();
+          
+          if (data && data.jobs && data.jobs.length > 0) {
+            document.getElementById('status').className = 'status alert';
+            document.getElementById('status').innerHTML = '⚠️ Manual Login Required!';
+            document.getElementById('jobs').style.display = 'block';
+            document.getElementById('jobs').textContent = 'Account: ' + data.jobs.join(', ');
+            document.getElementById('openBtn').style.display = 'block';
+            
+            if (!hasNotified) {
+              openVnc();
+              hasNotified = true;
+            }
+          } else {
+            document.getElementById('jobs').style.display = 'none';
+            document.getElementById('openBtn').style.display = 'none';
+            
+            google.script.run
+              .withSuccessHandler(function(syncActive) {
+                if (hasNotified && !syncActive) {
+                  google.script.host.close();
+                  return;
+                }
+                document.getElementById('status').className = 'status watching';
+                document.getElementById('status').innerHTML = syncActive ? '🔄 Sync in progress...' : '✅ Monitoring...';
+              })
+              .isSyncActive();
+          }
+        })
+        .checkPendingVnc();
+    }
+    
+    function openVnc() {
+      window.open(VNC_URL, '_blank', 'width=1024,height=768');
+      google.script.run.clearPendingVnc();
+    }
+    
+    setInterval(check, 5000);
+    check();
+  </script>
+</body>
+</html>
+  `;
+}

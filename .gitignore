@@ -24,7 +24,9 @@ wheels/
 *.egg
 
 # Sensitive data
-config/
+config/settings.json
+config/service-account.json
+config/accounts.json
 sessions/
 data/
 

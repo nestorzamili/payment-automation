@@ -6,7 +6,7 @@ from src.utils.response import jsend_success, jsend_error
 
 logger = get_logger(__name__)
 
-bp = Blueprint('kira_pg', __name__)
+bp = Blueprint('kira_pg', __name__, url_prefix='/api/sheets')
 
 
 @bp.route('/kira-pg', methods=['POST'])

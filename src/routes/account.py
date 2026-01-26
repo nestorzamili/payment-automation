@@ -5,10 +5,10 @@ from src.core.logger import get_logger
 
 logger = get_logger(__name__)
 
-bp = Blueprint('account', __name__)
+bp = Blueprint('account', __name__, url_prefix='/api')
 
 
-@bp.route('/api/accounts', methods=['GET'])
+@bp.route('/accounts', methods=['GET'])
 def list_accounts():
     try:
         accounts = get_all_accounts()
@@ -21,7 +21,7 @@ def list_accounts():
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
-@bp.route('/api/accounts/<int:account_id>', methods=['GET'])
+@bp.route('/accounts/<int:account_id>', methods=['GET'])
 def get_account(account_id):
     try:
         account = get_account_by_id(account_id)
@@ -37,7 +37,7 @@ def get_account(account_id):
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
-@bp.route('/api/accounts', methods=['POST'])
+@bp.route('/accounts', methods=['POST'])
 def add_account():
     from flask import request
     try:
@@ -60,7 +60,7 @@ def add_account():
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
-@bp.route('/api/accounts/<int:account_id>', methods=['PUT'])
+@bp.route('/accounts/<int:account_id>', methods=['PUT'])
 def edit_account(account_id):
     from flask import request
     try:

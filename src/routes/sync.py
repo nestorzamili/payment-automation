@@ -10,11 +10,11 @@ from src.services.sync import (
 )
 from src.utils import jsend_success, jsend_fail
 
-bp = Blueprint('sync', __name__)
+bp = Blueprint('sync', __name__, url_prefix='/api/sync')
 logger = get_logger(__name__)
 
 
-@bp.route('/sync-data', methods=['POST'])
+@bp.route('', methods=['POST'])
 def sync_data():
     result = start_full_sync()
     
@@ -24,7 +24,7 @@ def sync_data():
     return jsend_success(result, 202)
 
 
-@bp.route('/sync-data/<platform>', methods=['POST'])
+@bp.route('/<platform>', methods=['POST'])
 def sync_platform(platform: str):
     valid_platforms = ['kira', 'pg', 'fiuu', 'm1', 'axai']
     if platform not in valid_platforms:
@@ -48,7 +48,7 @@ def parse_only():
     return jsend_success(result, 202)
 
 
-@bp.route('/sync-status', methods=['GET'])
+@bp.route('/status', methods=['GET'])
 def sync_status():
     return jsend_success({
         'running': is_sync_running(),

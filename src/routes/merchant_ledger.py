@@ -6,10 +6,10 @@ from src.utils.response import jsend_success, jsend_error
 
 logger = get_logger(__name__)
 
-bp = Blueprint('merchant_ledger', __name__)
+bp = Blueprint('merchant_ledger', __name__, url_prefix='/api/ledger')
 
 
-@bp.route('/merchant-ledger', methods=['POST'])
+@bp.route('/merchant', methods=['POST'])
 def sync_merchant_ledger():
     try:
         rows = MerchantLedgerSheetService.sync_sheet()
