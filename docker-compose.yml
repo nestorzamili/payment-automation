@@ -1,10 +1,10 @@
 services:
   app:
     build: .
-    container_name: payment-reconciliation
+    container_name: payment-automation
     ports:
-      - "5000:5000"
-      - "5900:5900"
+      - "127.0.0.1:5000:5000"
+      - "127.0.0.1:5900:5900"
     volumes:
       - ./data:/app/data
       - ./logs:/app/logs
@@ -16,12 +16,12 @@ services:
 
   novnc:
     image: geek1011/easy-novnc:latest
-    container_name: novnc
+    container_name: novnc-payment-automation
     ports:
-      - "8080:8080"
+      - "127.0.0.1:8080:8080"
     environment:
       - NOVNC_DEFAULT_VIEW_ONLY=false
-    command: --addr :8080 --host app --port 5900
+    command: --addr :8080 --host payment-automation --port 5900
     depends_on:
       - app
     restart: unless-stopped
