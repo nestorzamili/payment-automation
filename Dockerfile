@@ -9,7 +9,14 @@ RUN apt-get update && apt-get install -y \
     xvfb \
     x11vnc \
     fluxbox \
+    git \
+    net-tools \
+    procps \
     && rm -rf /var/lib/apt/lists/*
+
+RUN git clone --depth 1 https://github.com/novnc/noVNC.git /opt/novnc \
+    && git clone --depth 1 https://github.com/novnc/websockify.git /opt/novnc/utils/websockify \
+    && ln -s /opt/novnc/vnc.html /opt/novnc/index.html
 
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
@@ -22,6 +29,6 @@ COPY . .
 COPY docker-entrypoint.sh /docker-entrypoint.sh
 RUN chmod +x /docker-entrypoint.sh
 
-EXPOSE 5000
+EXPOSE 5000 6080
 
 ENTRYPOINT ["/docker-entrypoint.sh"]
