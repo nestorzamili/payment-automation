@@ -1,0 +1,27 @@
+services:
+  app:
+    build: .
+    container_name: payment-reconciliation
+    ports:
+      - "5000:5000"
+      - "5900:5900"
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+      - ./config:/app/config
+      - ./sessions:/app/sessions
+    environment:
+      - DISPLAY=:99
+    restart: unless-stopped
+
+  novnc:
+    image: geek1011/easy-novnc:latest
+    container_name: novnc
+    ports:
+      - "8080:8080"
+    environment:
+      - NOVNC_DEFAULT_VIEW_ONLY=false
+    command: --addr :8080 --host app --port 5900
+    depends_on:
+      - app
+    restart: unless-stopped

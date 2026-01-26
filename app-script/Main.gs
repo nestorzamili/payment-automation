@@ -1,5 +1,5 @@
 const CONFIG = {
-  BASE_URL: 'cloudflare-tunnel-url',
+  BASE_URL: 'http://YOUR_VM_IP:5000',
   API_KEY: 'api-key',
   MERCHANT_LEDGER: 'Merchants Balance & Settlement Ledger',
   AGENT_LEDGER: 'Agents Balance & Settlement Ledger',

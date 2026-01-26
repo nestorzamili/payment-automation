@@ -1,4 +1,3 @@
-import atexit
 import logging
 import signal
 import sys
@@ -9,7 +8,7 @@ from flask import Flask, request
 from src.core import get_logger, load_settings, setup_logger
 from src.routes import PUBLIC_ENDPOINTS, register_routes
 from src.scrapers import cleanup_all_browsers
-from src.utils import jsend_fail, get_ssh_tunnel
+from src.utils import jsend_fail
 
 setup_logger()
 logger = get_logger(__name__)
@@ -26,8 +25,6 @@ register_routes(app)
 
 
 def get_client_ip() -> str:
-    if request.headers.get('CF-Connecting-IP'):
-        return request.headers.get('CF-Connecting-IP', '')
     if request.headers.get('X-Forwarded-For'):
         return request.headers.get('X-Forwarded-For', '').split(',')[0].strip()
     if request.headers.get('X-Real-IP'):
@@ -59,33 +56,22 @@ def log_response(response):
     return response
 
 
-ssh_tunnel = get_ssh_tunnel()
-
-
 def signal_handler(signum: int, frame: Any) -> None:
     cleanup_all_browsers()
-    ssh_tunnel.stop()
     sys.exit(0)
 
 
 signal.signal(signal.SIGINT, signal_handler)
 signal.signal(signal.SIGTERM, signal_handler)
 
-atexit.register(ssh_tunnel.stop)
-
 
 if __name__ == '__main__':
     logger.info("Starting server")
     logger.info(f"http://{flask_config['host']}:{flask_config['port']}")
 
-    ssh_tunnel.start()
-
-    try:
-        app.run(
-            host=flask_config['host'],
-            port=flask_config['port'],
-            debug=flask_config['debug'],
-            use_reloader=False
-        )
-    finally:
-        ssh_tunnel.stop()
+    app.run(
+        host=flask_config['host'],
+        port=flask_config['port'],
+        debug=flask_config['debug'],
+        use_reloader=False
+    )
