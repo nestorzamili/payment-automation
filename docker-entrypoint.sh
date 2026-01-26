@@ -12,7 +12,7 @@ sleep 1
 x11vnc -display :99 -forever -shared -passwd "$VNC_PWD" -rfbport 5900 -noxdamage &
 sleep 1
 
-/usr/share/novnc/utils/novnc_proxy --vnc localhost:5900 --listen 6080 &
+/usr/share/novnc/utils/novnc_proxy --vnc localhost:5900 --listen 6080 --web /usr/share/novnc &
 sleep 1
 
 exec python server.py

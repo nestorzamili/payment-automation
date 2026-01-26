@@ -1,4 +1,4 @@
-FROM mcr.microsoft.com/playwright/python:v1.49.1-noble
+FROM mcr.microsoft.com/playwright/python:v1.56.0-noble
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     xvfb \
