@@ -71,19 +71,43 @@ class DateRangeService:
         return ranges
     
     def _get_all_progress(self) -> Dict[str, date]:
+        from src.core.loader import load_accounts
+        
         session = get_session()
         try:
             session.expire_all()
+            accounts = load_accounts()
             progress = {}
+            
             for platform in PLATFORMS:
-                job = session.query(Job).filter(
-                    Job.job_type == 'download',
-                    Job.platform == platform,
-                    Job.status == 'completed'
-                ).order_by(Job.to_date.desc()).first()
+                platform_accounts = [a['label'] for a in accounts if a['platform'] == platform]
                 
-                if job and job.to_date:
-                    progress[platform] = datetime.strptime(job.to_date, '%Y-%m-%d').date()
+                if not platform_accounts:
+                    continue
+                
+                account_progress = {}
+                for acc_label in platform_accounts:
+                    job = session.query(Job).filter(
+                        Job.job_type == 'download',
+                        Job.platform == platform,
+                        Job.account_label == acc_label,
+                        Job.status == 'completed'
+                    ).order_by(Job.to_date.desc()).first()
+                    
+                    if job and job.to_date:
+                        account_progress[acc_label] = datetime.strptime(job.to_date, '%Y-%m-%d').date()
+                
+                if not account_progress:
+                    continue
+                
+                if len(account_progress) < len(platform_accounts):
+                    missing = set(platform_accounts) - set(account_progress.keys())
+                    logger.info(f"{platform}: accounts without progress: {missing}")
+                    continue
+                
+                min_progress = min(account_progress.values())
+                progress[platform] = min_progress
+                logger.debug(f"{platform} progress: {account_progress} -> min={min_progress}")
             
             return progress
         finally:

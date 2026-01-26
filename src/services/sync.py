@@ -187,9 +187,31 @@ def _run_parse_only(run_id: str):
         _current_run_id = None
 
 
+def _is_account_completed(account_label: str, from_date: str, to_date: str) -> bool:
+    from src.core.database import get_session
+    from src.core.models import Job
+    
+    session = get_session()
+    try:
+        job = session.query(Job).filter(
+            Job.job_type == 'download',
+            Job.account_label == account_label,
+            Job.from_date == from_date,
+            Job.to_date == to_date,
+            Job.status == 'completed'
+        ).first()
+        return job is not None
+    finally:
+        session.close()
+
+
 def _create_download_jobs(run_id: str, accounts: list, from_date: str, to_date: str, platform_group: str) -> List[Tuple[int, dict, str, str]]:
     jobs = []
     for account in accounts:
+        if _is_account_completed(account['label'], from_date, to_date):
+            logger.info(f"Skipping {account['label']}: already completed for {from_date} - {to_date}")
+            continue
+        
         source_type = 'api' if account['platform'] == 'fiuu' else 'browser'
         job_id = job_manager.create_job(
             job_type='download',
