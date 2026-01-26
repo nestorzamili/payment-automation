@@ -12,4 +12,9 @@ services:
       - ./sessions:/app/sessions
     environment:
       - DISPLAY=:99
+      - TZ=Asia/Kuala_Lumpur
+    ipc: host
+    init: true
+    security_opt:
+      - seccomp:unconfined
     restart: unless-stopped

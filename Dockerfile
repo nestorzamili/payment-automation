@@ -1,34 +1,30 @@
-FROM python:3.12-slim
+FROM mcr.microsoft.com/playwright/python:v1.49.1-noble
 
-ENV PYTHONUNBUFFERED=1
-ENV DISPLAY=:99
-
-WORKDIR /app
-
-RUN apt-get update && apt-get install -y \
+RUN apt-get update && apt-get install -y --no-install-recommends \
     xvfb \
     x11vnc \
+    novnc \
+    websockify \
     fluxbox \
-    git \
-    net-tools \
-    procps \
+    supervisor \
     && rm -rf /var/lib/apt/lists/*
 
-RUN git clone --depth 1 https://github.com/novnc/noVNC.git /opt/novnc \
-    && git clone --depth 1 https://github.com/novnc/websockify.git /opt/novnc/utils/websockify \
-    && ln -s /opt/novnc/vnc.html /opt/novnc/index.html
+RUN mkdir -p /root/.vnc
+
+WORKDIR /app
 
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-RUN playwright install chromium
-RUN playwright install-deps chromium
+COPY supervisord.conf /etc/supervisor/conf.d/supervisord.conf
 
 COPY . .
 
-COPY docker-entrypoint.sh /docker-entrypoint.sh
-RUN chmod +x /docker-entrypoint.sh
+RUN mkdir -p /app/logs
+
+ENV DISPLAY=:99
+ENV PYTHONUNBUFFERED=1
 
 EXPOSE 5000 6080
 
-ENTRYPOINT ["/docker-entrypoint.sh"]
+CMD ["/usr/bin/supervisord", "-c", "/etc/supervisor/conf.d/supervisord.conf"]
