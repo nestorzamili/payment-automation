@@ -38,19 +38,19 @@ def run_download_jobs(jobs: List[Tuple[int, dict]], from_date: str, to_date: str
                 job_manager.update_job(job_id, 'failed', error_message=error_msg)
         
         if browser_jobs:
-            async with BrowserManager() as browser_manager:
-                for job_id, account in browser_jobs:
-                    job_manager.update_job(job_id, 'running')
-                    try:
+            for job_id, account in browser_jobs:
+                job_manager.update_job(job_id, 'running')
+                try:
+                    async with BrowserManager() as browser_manager:
                         scraper_class = get_scraper_class(account['platform'])
                         scraper = scraper_class(account)
                         files = await scraper.download_data(browser_manager, from_date, to_date)
                         job_manager.update_job(job_id, 'completed', fetched_count=len(files), stored_count=len(files))
-                    except Exception as e:
-                        from src.core.logger import clean_error_msg
-                        error_msg = clean_error_msg(e)
-                        logger.error(f"Download failed: {account['label']} - {error_msg}")
-                        job_manager.update_job(job_id, 'failed', error_message=error_msg)
+                except Exception as e:
+                    from src.core.logger import clean_error_msg
+                    error_msg = clean_error_msg(e)
+                    logger.error(f"Download failed: {account['label']} - {error_msg}")
+                    job_manager.update_job(job_id, 'failed', error_message=error_msg)
     
     asyncio.run(run())
 
