@@ -61,15 +61,28 @@ class BrowserManager:
         if not headless:
             launch_args.append('--start-maximized')
         
-        self.playwright = await async_playwright().start()
-        self.browser = await self.playwright.chromium.launch(
-            headless=headless,
-            slow_mo=self.settings['browser'].get('slow_mo', 100),
-            args=launch_args
-        )
+        try:
+            self.playwright = await async_playwright().start()
+            self.browser = await self.playwright.chromium.launch(
+                headless=headless,
+                slow_mo=self.settings['browser'].get('slow_mo', 100),
+                args=launch_args
+            )
+        except Exception as e:
+            logger.error(f"Failed to launch browser (headless={headless}): {str(e)}")
+            if not headless:
+                logger.warning("Headed browser failed, falling back to headless mode")
+                headless = True
+                self.headless_override = True
+                self.playwright = await async_playwright().start()
+                self.browser = await self.playwright.chromium.launch(
+                    headless=True,
+                    slow_mo=self.settings['browser'].get('slow_mo', 100)
+                )
+            else:
+                raise
         self.headless = headless
         
-        # Register for graceful shutdown
         _active_browsers.append(self)
         
     async def create_context(self, session_path: Optional[Path] = None) -> BrowserContext:
@@ -112,7 +125,6 @@ class BrowserManager:
             raise
     
     async def close(self):
-        # Unregister from global registry
         if self in _active_browsers:
             _active_browsers.remove(self)
         

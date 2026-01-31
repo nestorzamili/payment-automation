@@ -169,6 +169,7 @@ class BaseScraper(ABC):
 
         self._update_job_running(job_id)
 
+        browser_manager = BrowserManager()
         await browser_manager.initialize()
         
         context = await browser_manager.create_context(session_path=self.session_path)
