@@ -154,16 +154,15 @@ class BaseScraper(ABC):
     
     async def _login_with_visible_browser(self, browser_manager: BrowserManager, from_date: str, to_date: str, job_id: int = None) -> List[Path]:
         logger.info(f"Visible browser for manual login: {self.label}")
-        
-        self._update_job_waiting_manual(job_id)
-        
+
         await browser_manager.close()
 
-        async with BrowserManager(headless_override=False) as visible_browser:
+        async with BrowserManager(headless_override=False, allow_headed_fallback=False) as visible_browser:
             context = await visible_browser.create_context(session_path=None)
             page = await create_page_with_kl_settings(context)
             
             await page.goto(self.login_url, wait_until='networkidle')
+            self._update_job_waiting_manual(job_id)
             await self.perform_login(page)
             await visible_browser.save_session(context, self.session_path)
 

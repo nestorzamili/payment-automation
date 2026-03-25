@@ -6,6 +6,10 @@ class LoginError(ScraperError):
     pass
 
 
+class VisibleBrowserUnavailableError(LoginError):
+    pass
+
+
 class DownloadError(ScraperError):
     pass
 

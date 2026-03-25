@@ -4,6 +4,7 @@ from typing import List, Optional
 
 from playwright.async_api import Browser, BrowserContext, Page, async_playwright
 
+from src.core.exceptions import VisibleBrowserUnavailableError
 from src.core.loader import load_settings
 from src.core.logger import get_logger
 
@@ -38,9 +39,10 @@ def cleanup_all_browsers():
 
 class BrowserManager:
     
-    def __init__(self, headless_override: Optional[bool] = None):
+    def __init__(self, headless_override: Optional[bool] = None, allow_headed_fallback: bool = True):
         self.settings = load_settings()
         self.headless_override = headless_override
+        self.allow_headed_fallback = allow_headed_fallback
         self.browser: Optional[Browser] = None
         self.playwright = None
         
@@ -70,7 +72,13 @@ class BrowserManager:
             )
         except Exception as e:
             logger.error(f"Failed to launch browser (headless={headless}): {str(e)}")
+            await self._stop_playwright()
             if not headless:
+                if not self.allow_headed_fallback:
+                    raise VisibleBrowserUnavailableError(
+                        "Visible browser unavailable because X server/VNC is not running"
+                    ) from e
+
                 logger.warning("Headed browser failed, falling back to headless mode")
                 headless = True
                 self.headless_override = True
@@ -84,6 +92,15 @@ class BrowserManager:
         self.headless = headless
         
         _active_browsers.append(self)
+
+    async def _stop_playwright(self):
+        if self.browser:
+            await self.browser.close()
+            self.browser = None
+
+        if self.playwright:
+            await self.playwright.stop()
+            self.playwright = None
         
     async def create_context(self, session_path: Optional[Path] = None) -> BrowserContext:
         if not self.browser:
@@ -128,13 +145,7 @@ class BrowserManager:
         if self in _active_browsers:
             _active_browsers.remove(self)
         
-        if self.browser:
-            await self.browser.close()
-            self.browser = None
-            
-        if self.playwright:
-            await self.playwright.stop()
-            self.playwright = None
+        await self._stop_playwright()
 
 
 async def create_page_with_kl_settings(context: BrowserContext) -> Page:
