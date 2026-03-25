@@ -13,6 +13,16 @@ services:
     environment:
       - DISPLAY=:99
       - TZ=Asia/Kuala_Lumpur
+    healthcheck:
+      test:
+        - CMD
+        - python3
+        - -c
+        - import socket; sock = socket.create_connection(("127.0.0.1", 5000), 3); sock.close()
+      interval: 1m
+      timeout: 5s
+      retries: 3
+      start_period: 45s
     ipc: host
     init: true
     security_opt:

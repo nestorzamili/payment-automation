@@ -47,7 +47,16 @@ wait_for_port() {
     local attempt
 
     for attempt in $(seq 1 20); do
-        if nc -z 127.0.0.1 "$port" >/dev/null 2>&1; then
+        if python3 - "$port" <<'PY' >/dev/null 2>&1
+import socket
+import sys
+
+port = int(sys.argv[1])
+with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+    sock.settimeout(1)
+    sock.connect(("127.0.0.1", port))
+PY
+        then
             log_info "$service_name is listening on port $port"
             return 0
         fi
