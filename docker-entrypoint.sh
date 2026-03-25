@@ -16,7 +16,11 @@ log_error() {
 }
 
 display_ready() {
-    xdpyinfo -display "$DISPLAY_NUM" >/dev/null 2>&1
+    [ -S "/tmp/.X11-unix/X${DISPLAY_ID}" ] && display_process_running
+}
+
+display_process_running() {
+    ps -eo args | grep -E "[X](vfb|org) ${DISPLAY_NUM}([[:space:]]|$)" >/dev/null 2>&1
 }
 
 wait_for_display() {
